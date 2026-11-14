@@ -1,0 +1,132 @@
+# XcodeGen spec for DroidDrive (plan P1-01). Generate the project with:
+#   xcodegen generate
+# The .xcodeproj is generated, not committed.
+name: DroidDrive
+options:
+  bundleIdPrefix: dev.droiddrive
+  deploymentTarget:
+    macOS: "13.0"
+  createIntermediateGroups: true
+
+configFiles:
+  Debug: Config/Signing.xcconfig
+  Release: Config/Signing.xcconfig
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MACOSX_DEPLOYMENT_TARGET: "13.0"
+    ARCHS: "$(ARCHS_STANDARD)"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    ENABLE_HARDENED_RUNTIME: YES
+    DROIDDRIVE_APP_GROUP: "$(DEVELOPMENT_TEAM).com.droiddrive"
+
+packages:
+  DroidKit:
+    path: Packages
+
+targets:
+  DroidDrive:
+    type: application
+    platform: macOS
+    sources:
+      - App
+      - Shared
+    dependencies:
+      - package: DroidKit
+        product: DroidCore
+      - package: DroidKit
+        product: AdbKit
+      - package: DroidKit
+        product: ItemStore
+      - package: DroidKit
+        product: UsbKit
+      - package: DroidKit
+        product: MtpKit
+      - package: DroidKit
+        product: AdbPairing
+      - package: DroidKit
+        product: DeviceService
+      - target: DroidDriveFileProvider
+        embed: true
+    info:
+      path: App/Info.plist
+      properties:
+        CFBundleDisplayName: DroidDrive
+        LSUIElement: true
+        LSApplicationCategoryType: public.app-category.utilities
+        DroidDriveAppGroup: "$(DROIDDRIVE_APP_GROUP)"
+        DroidDriveTeamID: "$(DEVELOPMENT_TEAM)"
+        DroidDriveHostBundleID: "$(DROIDDRIVE_BUNDLE_PREFIX).app"
+        NSLocalNetworkUsageDescription: "DroidDrive connects to your Android phone over Wi-Fi and through adb on this Mac."
+        NSBonjourServices:
+          - _adb-tls-pairing._tcp
+          - _adb-tls-connect._tcp
+          - _adb._tcp
+    entitlements:
+      path: App/DroidDrive.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.network.client: true
+        com.apple.security.network.server: true
+        com.apple.security.device.usb: true
+        com.apple.security.application-groups:
+          - "$(DROIDDRIVE_APP_GROUP)"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: "$(DROIDDRIVE_BUNDLE_PREFIX).app"
+        PRODUCT_NAME: DroidDrive
+
+  DroidDriveFileProvider:
+    type: app-extension
+    platform: macOS
+    sources:
+      - FileProvider
+      - Shared
+    dependencies:
+      - package: DroidKit
+        product: DroidCore
+      - package: DroidKit
+        product: AdbKit
+      - package: DroidKit
+        product: ItemStore
+      - package: DroidKit
+        product: DeviceService
+    info:
+      path: FileProvider/Info.plist
+      properties:
+        CFBundleDisplayName: DroidDrive
+        DroidDriveAppGroup: "$(DROIDDRIVE_APP_GROUP)"
+        DroidDriveTeamID: "$(DEVELOPMENT_TEAM)"
+        DroidDriveHostBundleID: "$(DROIDDRIVE_BUNDLE_PREFIX).app"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.fileprovider-nonui
+          NSExtensionPrincipalClass: "$(PRODUCT_MODULE_NAME).FileProviderExtension"
+          NSExtensionFileProviderSupportsEnumeration: true
+          # FR-18: Finder draws the sync states itself; this badge marks the Mac's copy
+          # kept after a conflict ("Name (Mac copy).ext", spec §5.5).
+          NSFileProviderDecorations:
+            - Identifier: "$(PRODUCT_BUNDLE_IDENTIFIER).conflictCopy"
+              BadgeImageType: com.apple.icon-decoration.badge.warning
+              Category: Badge
+              Label: "Mac copy kept after a conflict"
+    entitlements:
+      path: FileProvider/DroidDriveFileProvider.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.network.client: true
+        com.apple.security.application-groups:
+          - "$(DROIDDRIVE_APP_GROUP)"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: "$(DROIDDRIVE_BUNDLE_PREFIX).app.FileProvider"
+        PRODUCT_NAME: DroidDriveFileProvider
+
+schemes:
+  DroidDrive:
+    build:
+      targets:
+        DroidDrive: all
+    run:
+      config: Debug

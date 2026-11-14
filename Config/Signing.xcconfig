@@ -1,0 +1,9 @@
+// Signing for local development builds. Override in Config/Signing.local.xcconfig
+// (git-ignored) to use another team, e.g. the paid account needed for notarizing (plan §1).
+//
+// 43FEB573SC is the "Personal Team" (free) found in Xcode on 2026-11-14.
+DEVELOPMENT_TEAM = 43FEB573SC
+DROIDDRIVE_BUNDLE_PREFIX = dev.droiddrive
+CODE_SIGN_STYLE = Automatic
+
+#include? "Signing.local.xcconfig"

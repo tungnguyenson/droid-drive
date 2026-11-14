@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleDisplayName</key>
+	<string>DroidDrive</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>DroidDriveAppGroup</key>
+	<string>$(DROIDDRIVE_APP_GROUP)</string>
+	<key>DroidDriveHostBundleID</key>
+	<string>$(DROIDDRIVE_BUNDLE_PREFIX).app</string>
+	<key>DroidDriveTeamID</key>
+	<string>$(DEVELOPMENT_TEAM)</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.utilities</string>
+	<key>LSUIElement</key>
+	<true/>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_adb-tls-pairing._tcp</string>
+		<string>_adb-tls-connect._tcp</string>
+		<string>_adb._tcp</string>
+	</array>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>DroidDrive connects to your Android phone over Wi-Fi and through adb on this Mac.</string>
+</dict>
+</plist>

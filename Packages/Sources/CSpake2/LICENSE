@@ -1,0 +1,48 @@
+CSpake2: SPAKE2 over edwards25519 for ADB Wi-Fi pairing (DroidDrive plan P3-02)
+
+Origin
+------
+Copied from BoringSSL, https://boringssl.googlesource.com/boringssl,
+tag 0.20240913.0 (commit 58f3bc83230d2958bb9710bc910972c4f5d382dc), the last
+releases where these files were still C:
+
+  crypto/curve25519/curve25519.c         -> curve25519.c
+  crypto/curve25519/spake25519.c         -> spake25519.c
+  crypto/curve25519/curve25519_tables.h  -> curve25519_tables.h
+  crypto/curve25519/internal.h           -> curve25519_internal.h
+  third_party/fiat/curve25519_64.h       -> fiat_curve25519_64.h
+
+Each file keeps its original copyright and licence header. The full licence
+texts are LICENSE.boringssl (BoringSSL's LICENSE file; the files above are
+under its ISC-style "Google Inc." licence) and LICENSE.fiat (MIT, fiat-crypto
+authors).
+
+Changes made for DroidDrive
+---------------------------
+- The #include lines of the four C files were replaced by
+  `#include "boringssl_shim.h"` plus the local file names above. No other line
+  of BoringSSL's code was changed.
+- boringssl_shim.h is new. It holds the few BoringSSL helpers these files use:
+  the constant-time functions copied verbatim from crypto/internal.h, generic
+  bn_add_words/bn_select_words, SHA-512 mapped to CommonCrypto, RAND_bytes
+  mapped to arc4random_buf, and #defines that prefix every exported symbol with
+  "cspake2_"/"CSPAKE2_" so this copy cannot clash with another BoringSSL in the
+  process (Network.framework ships one).
+- include/cspake2.h (the public header) and cspake2_test_hook.c are new
+  DroidDrive files, not BoringSSL code.
+
+ISC licence of the BoringSSL files (as in their headers)
+--------------------------------------------------------
+Copyright (c) 2016-2020, Google Inc.
+
+Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY
+SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
+OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.

@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>$(DEVELOPMENT_LANGUAGE)</string>
+	<key>CFBundleDisplayName</key>
+	<string>DroidDrive</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>XPC!</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>DroidDriveAppGroup</key>
+	<string>$(DROIDDRIVE_APP_GROUP)</string>
+	<key>DroidDriveHostBundleID</key>
+	<string>$(DROIDDRIVE_BUNDLE_PREFIX).app</string>
+	<key>DroidDriveTeamID</key>
+	<string>$(DEVELOPMENT_TEAM)</string>
+	<key>NSExtension</key>
+	<dict>
+		<key>NSExtensionFileProviderSupportsEnumeration</key>
+		<true/>
+		<key>NSExtensionPointIdentifier</key>
+		<string>com.apple.fileprovider-nonui</string>
+		<key>NSExtensionPrincipalClass</key>
+		<string>$(PRODUCT_MODULE_NAME).FileProviderExtension</string>
+		<key>NSFileProviderDecorations</key>
+		<array>
+			<dict>
+				<key>BadgeImageType</key>
+				<string>com.apple.icon-decoration.badge.warning</string>
+				<key>Category</key>
+				<string>Badge</string>
+				<key>Identifier</key>
+				<string>$(PRODUCT_BUNDLE_IDENTIFIER).conflictCopy</string>
+				<key>Label</key>
+				<string>Mac copy kept after a conflict</string>
+			</dict>
+		</array>
+	</dict>
+</dict>
+</plist>

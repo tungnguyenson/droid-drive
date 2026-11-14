@@ -1,0 +1,54 @@
+# CI for DroidDrive (plan P1-01): unit tests of the Swift packages and an unsigned
+# build of the app and its File Provider extension, on every push and pull request.
+#
+# Integration tests (DROIDDRIVE_ADB_SERIAL) need an Android emulator and are not run
+# here; signing, notarizing and the DMG are scripts/release.sh, run by hand.
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Swift packages
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_26.app || sudo xcode-select -s /Applications/Xcode.app
+      - name: Cache SwiftPM build
+        uses: actions/cache@v4
+        with:
+          path: Packages/.build
+          key: spm-${{ runner.os }}-${{ hashFiles('Packages/Package.swift', 'Packages/Package.resolved') }}
+      - name: swift test
+        working-directory: Packages
+        run: swift test --parallel
+
+  build:
+    name: App (unsigned)
+    runs-on: macos-26
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode_26.app || sudo xcode-select -s /Applications/Xcode.app
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate project
+        run: xcodegen generate
+      - name: Build
+        # No signing on CI: the App Group and the extension's host check need a team,
+        # so this proves the code compiles and links, not that it runs.
+        run: |
+          xcodebuild -project DroidDrive.xcodeproj -scheme DroidDrive -configuration Debug \
+            -derivedDataPath build/ci \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" DEVELOPMENT_TEAM="" \
+            build
