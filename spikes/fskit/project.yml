@@ -1,0 +1,56 @@
+# Throwaway project for spike S0-d (docs/plan.md): FSKit with a generic URL resource.
+name: FSKitSpike
+options:
+  bundleIdPrefix: dev.droiddrive.spike
+  deploymentTarget:
+    macOS: "26.0"
+settings:
+  base:
+    DEVELOPMENT_TEAM: 43FEB573SC
+    SWIFT_VERSION: "5.0"
+    ENABLE_HARDENED_RUNTIME: YES
+targets:
+  FSKitSpike:
+    type: application
+    platform: macOS
+    sources: [Host]
+    dependencies:
+      - target: DroidSpikeFS
+        embed: true
+        codeSign: true
+    info:
+      path: Host/Info.plist
+      properties:
+        CFBundleName: FSKitSpike
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.droiddrive.spike.host
+  DroidSpikeFS:
+    type: extensionkit-extension
+    platform: macOS
+    sources: [Extension]
+    entitlements:
+      path: Extension/Extension.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.developer.fskit.fsmodule: true
+    info:
+      path: Extension/Info.plist
+      properties:
+        CFBundleDisplayName: DroidSpikeFS
+        EXAppExtensionAttributes:
+          EXExtensionPointIdentifier: com.apple.fskit.fsmodule
+          FSShortName: droidspike
+          FSSupportedSchemes: [droidspike]
+          FSSupportsGenericURLResources: true
+          FSSupportsBlockResources: false
+          FSSupportsPathURLs: false
+          FSRequiresSecurityScopedPathURLResources: false
+          FSPersonalities: {}
+          FSMediaTypes: {}
+          FSActivateOptionSyntax:
+            shortOptions: "o:"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.droiddrive.spike.host.fs
+        OTHER_SWIFT_FLAGS: "-parse-as-library"

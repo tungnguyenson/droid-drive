@@ -20,7 +20,7 @@ Khác với kế hoạch ban đầu, S0-b và S0-c không làm thành chương t
 | S0-a | Mở được giao diện MTP bằng `IOUSBHost` khi `ptpcamerad` chạy? | **Chưa thử**: công cụ `droiddrive-usb` đã sẵn, cần điện thoại thật cắm cáp | Chặn P2-01 trở đi; ADB vẫn là đường chính |
 | S0-b | Tự viết được bắt tay ADB tới `sync:` `LIST`? | **Có, qua TCP**. Phần USB (UsbKit) chưa thử | Giữ quyết định 4 (tự viết client ADB). Lớp giao thức không phụ thuộc đường truyền, USB chỉ thêm một `AdbPacketLink` |
 | S0-c | File Provider replicated hiện trong Finder, đọc, ghi, đổi tên, hàng đợi khi mất kết nối? | **Có**, với một điều kiện: macOS 26 tạo domain ở trạng thái tắt, người dùng phải bật | Thêm bước "bật DroidDrive" vào hướng dẫn và vào menu (đã làm) |
-| S0-d | FSKit gắn được hệ thống tệp không dựa trên thiết bị khối? | **Chưa thử** | Không chặn gì trước giai đoạn 5 |
+| S0-d | FSKit gắn được hệ thống tệp không dựa trên thiết bị khối? | **Có trên giấy** (`FSGenericURLResource`, module FTP của Apple); bài thử chưa gắn được vì công tắc bật module không ăn | Quyết định có thay File Provider bằng FSKit hay không còn chờ số đo liệt kê |
 
 ## S0-b: client ADB tự viết
 
@@ -125,6 +125,28 @@ swift run droiddrive-usb mtp-ls /storage/emulated/0/DCIM
 swift run droiddrive-usb adb-info            # adb server phải không giữ giao diện ADB
 ```
 
+## S0-d: FSKit với tài nguyên URL (đêm 14/11/2026, chưa xong)
+
+**Câu hỏi.** FSKit trên macOS 26 có gắn được hệ thống tệp không dựa trên thiết bị khối không? Câu này được làm sớm vì liệt kê thư mục lớn qua File Provider không đạt mục 9 (fileproviderd mất khoảng 30 ms cho mỗi mục).
+
+**Trên giấy: có.**
+
+- SDK macOS 26 có `FSGenericURLResource` (một URL bất kỳ, khai báo scheme bằng `FSSupportedSchemes`) và `FSPathURLResource`, cả hai `API_AVAILABLE(macos(26.0))`.
+- macOS 26.7 có sẵn `com.apple.fskit.ftp.appex`, gắn FTP theo đúng cách này: `FSSupportsGenericURLResources = true`, `FSSupportsBlockResources = false`, `FSSupportedSchemes = [ftp]`. Gắn bằng `mount -F -t <FSShortName> <url> <điểm gắn>`.
+
+**Bài thử** nằm ở `spikes/fskit/` (project XcodeGen riêng): app chủ tối giản và extension `DroidSpikeFS` (`UnaryFileSystemExtension`, `FSUnaryFileSystem`, `FSVolume` chỉ đọc). Nó sinh trong bộ nhớ một thư mục `many/` có N tệp, gắn bằng `droidspike://test?files=10000`. Mã biên dịch được với SDK 26.5.
+
+**Đã biết:**
+
+- Quyền `com.apple.developer.fskit.fsmodule` cần provisioning profile: ký tại máy không profile bị Xcode từ chối ("requires a provisioning profile with the FSKit Module feature"). Personal Team miễn phí tạo được profile có quyền này (automatic signing).
+- macOS nhận module (`pluginkit -m -p com.apple.fskit.fsmodule` liệt kê nó). Cài đặt hệ thống hiện nó dưới dòng tên app, mục "FSKit Modules", chứ không có mục "File System Extensions" riêng.
+- `mount` báo "Module … is disabled!" cho tới khi người dùng bật. **Công tắc trong Cài đặt hệ thống không bật được**: bấm thì công tắc không đổi, kể cả sau khi chuyển app sang `~/Applications` trên ổ hệ thống và thoát hẳn Cài đặt. `pluginkit -e use` đánh dấu được extension nhưng FSKit vẫn báo tắt.
+- FSKit lưu danh sách module được bật trong `~/Library/Group Containers/group.com.apple.fskit.settings/enabledModules.plist`; công tắc không ghi được gì vào đó. `fskitd` có chuỗi "Call fskit_agent to set enabled state".
+- Gatekeeper từ chối bản ký Development (`spctl --assess`: rejected). Để loại trừ chữ ký, bản thử được ký **Developer ID** của team cá nhân `43FEB573SC` (Xcode tạo chứng chỉ quản lý trên đám mây khi export `developer-id`), **notarize** (Accepted), staple, cài vào `/Applications`; Gatekeeper chấp nhận ("Notarized Developer ID"), không còn `get-task-allow`. **Công tắc vẫn không bật được**, `enabledModules.plist` vẫn không có module. Vậy chữ ký không phải nguyên nhân.
+- Log hệ thống (kể cả mức debug) không ghi gì từ `fskitd`, `fskit_agent` hay trang Cài đặt khi bấm công tắc. Giả thuyết còn lại: lỗi của Cài đặt hệ thống trên macOS 26.7.2 với module FSKit bên thứ ba, hoặc một khóa Info.plist còn thiếu. Người dùng đã tự thêm id module vào `enabledModules.plist` (bản cũ lưu ở `/tmp/enabledModules.bak`). `mount` vẫn báo "disabled" vì `fskit_agent` (chạy dưới tài khoản người dùng) giữ trạng thái trong bộ nhớ và không khởi động lại được: nó bỏ qua SIGTERM, còn `launchctl kickstart -k user/501/com.apple.fskit.fskit_agent` báo "Operation not permitted while System Integrity Protection is engaged". Bước kiểm tiếp theo: đăng xuất hoặc khởi động lại máy, rồi `mount -F -t droidspike 'droidspike://test?files=10000' /tmp/droidspike`.
+
+**Chưa đo được** tốc độ liệt kê, vì chưa gắn được.
+
 ## S0-a và S0-d
 
-Chưa có kết luận. Công cụ cho S0-a đã sẵn (mục trên). S0-a cần một điện thoại thật cắm USB ở chế độ "Truyền tệp", tốt nhất là cả Pixel lẫn Samsung (mục 1 của kế hoạch). S0-d chỉ cần cho giai đoạn 5.
+Chưa có kết luận. Công cụ cho S0-a đã sẵn (mục trên). S0-a cần một điện thoại thật cắm USB ở chế độ "Truyền tệp", tốt nhất là cả Pixel lẫn Samsung (mục 1 của kế hoạch). S0-d xem mục riêng ở trên.
