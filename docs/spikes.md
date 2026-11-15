@@ -20,7 +20,7 @@ Khác với kế hoạch ban đầu, S0-b và S0-c không làm thành chương t
 | S0-a | Mở được giao diện MTP bằng `IOUSBHost` khi `ptpcamerad` chạy? | **Chưa thử**: công cụ `droiddrive-usb` đã sẵn, cần điện thoại thật cắm cáp | Chặn P2-01 trở đi; ADB vẫn là đường chính |
 | S0-b | Tự viết được bắt tay ADB tới `sync:` `LIST`? | **Có, qua TCP**. Phần USB (UsbKit) chưa thử | Giữ quyết định 4 (tự viết client ADB). Lớp giao thức không phụ thuộc đường truyền, USB chỉ thêm một `AdbPacketLink` |
 | S0-c | File Provider replicated hiện trong Finder, đọc, ghi, đổi tên, hàng đợi khi mất kết nối? | **Có**, với một điều kiện: macOS 26 tạo domain ở trạng thái tắt, người dùng phải bật | Thêm bước "bật DroidDrive" vào hướng dẫn và vào menu (đã làm) |
-| S0-d | FSKit gắn được hệ thống tệp không dựa trên thiết bị khối? | **Có**: gắn từ URL `droidspike://`, liệt kê 10.000 mục trong 0,11 giây (File Provider: 401 giây) | Công tắc của Cài đặt hệ thống không bật được module bên thứ ba trên macOS 26.7.2; phải tìm cách bật chính thức trước khi dựa vào FSKit |
+| S0-d | FSKit gắn được hệ thống tệp không dựa trên thiết bị khối? | **Có**: gắn từ URL `droidspike://`, liệt kê 10.000 mục trong 0,11 giây (File Provider: 401 giây) | Trên macOS 26.x người dùng không bật được module bên thứ ba (lỗi của macOS, đã sửa ở 27.0); app sandbox không tự gắn được, cần tiến trình phụ không sandbox |
 
 ## S0-b: client ADB tự viết
 
@@ -164,6 +164,14 @@ Tức là phần chậm của File Provider (khoảng 30 ms mỗi mục) không 
 2. **Khác File Provider về hành vi.** FSKit là một ổ thật: không có bản tải về để mở khi mất kết nối, không có hàng đợi sửa khi offline (FR-10), không có huy hiệu trạng thái; điện thoại rút ra thì ổ phải tháo. Đổi lại, liệt kê nhanh và không có thư mục giữ chỗ.
 
 Module bài thử vẫn đang được bật (id còn trong `enabledModules.plist`), để làm tiếp với FSKit mà không phải đăng nhập lại.
+
+**Vì sao công tắc không bật (tìm ra ngày 15/11/2026).** Đây là lỗi của macOS 26.x, đã có người ghi lại kỹ: [MacFabric/iSCSI-NVMe-TCP, `docs/feedback-fskit-enablement-26x.md`](https://github.com/MacFabric/iSCSI-NVMe-TCP/blob/main/docs/feedback-fskit-enablement-26x.md). Một module notarize Developer ID không bật được trên 26.6.1, còn bản y hệt bật ngay lần bấm đầu trên macOS 27.0. Lỗi tái hiện được với cả `FSKitSample` của Apple trên 26.1 và 26.2. Mỗi lần bấm, `fskitd` ghi "Received error '(null)', errno 2, retrieving team ID". Trên 26 không có cách đưa người dùng tới đúng trang cài đặt: `FSClient.openFileSystemExtensionsSettings()` chỉ có từ macOS 27. Cách vòng duy nhất là thêm id vào `enabledModules.plist` rồi khởi động lại `fskitd` (hoặc đăng nhập lại), một việc ứng dụng không nên tự làm.
+
+**Ứng dụng gắn ổ FSKit bằng cách nào (thử ngày 15/11/2026).**
+
+- `FSClient` chỉ liệt kê module (`installedExtensions`, kèm `isEnabled`), không có hàm bật module hay gắn ổ. Trên máy thử nó không liệt kê module bài thử, dù `mount -F` dùng được module đó.
+- `NetFSMountURLAsync` (đường của Finder "Connect to Server") không chuyển scheme lạ sang FSKit: Finder báo "URLs with the type droidspike: are not supported".
+- `/sbin/mount -F -t droidspike <url> <thư mục>` chạy từ một tiến trình **không sandbox** thì gắn được; từ một app **có sandbox** thì báo "Unable to invoke task". DroidDrive.app đang chạy sandbox, nên chế độ FSKit cần một tiến trình phụ không sandbox (ví dụ launch agent đăng ký bằng `SMAppService.agent`) làm việc gắn ổ. Tiến trình đó cũng có thể mở một Mach service có tên bắt đầu bằng app group, để extension FSKit (sandbox) lấy dữ liệu điện thoại từ app.
 
 ## S0-a và S0-d
 
