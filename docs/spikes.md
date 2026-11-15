@@ -20,7 +20,7 @@ Khác với kế hoạch ban đầu, S0-b và S0-c không làm thành chương t
 | S0-a | Mở được giao diện MTP bằng `IOUSBHost` khi `ptpcamerad` chạy? | **Chưa thử**: công cụ `droiddrive-usb` đã sẵn, cần điện thoại thật cắm cáp | Chặn P2-01 trở đi; ADB vẫn là đường chính |
 | S0-b | Tự viết được bắt tay ADB tới `sync:` `LIST`? | **Có, qua TCP**. Phần USB (UsbKit) chưa thử | Giữ quyết định 4 (tự viết client ADB). Lớp giao thức không phụ thuộc đường truyền, USB chỉ thêm một `AdbPacketLink` |
 | S0-c | File Provider replicated hiện trong Finder, đọc, ghi, đổi tên, hàng đợi khi mất kết nối? | **Có**, với một điều kiện: macOS 26 tạo domain ở trạng thái tắt, người dùng phải bật | Thêm bước "bật DroidDrive" vào hướng dẫn và vào menu (đã làm) |
-| S0-d | FSKit gắn được hệ thống tệp không dựa trên thiết bị khối? | **Có trên giấy** (`FSGenericURLResource`, module FTP của Apple); bài thử chưa gắn được vì công tắc bật module không ăn | Quyết định có thay File Provider bằng FSKit hay không còn chờ số đo liệt kê |
+| S0-d | FSKit gắn được hệ thống tệp không dựa trên thiết bị khối? | **Có**: gắn từ URL `droidspike://`, liệt kê 10.000 mục trong 0,11 giây (File Provider: 401 giây) | Công tắc của Cài đặt hệ thống không bật được module bên thứ ba trên macOS 26.7.2; phải tìm cách bật chính thức trước khi dựa vào FSKit |
 
 ## S0-b: client ADB tự viết
 
@@ -125,7 +125,7 @@ swift run droiddrive-usb mtp-ls /storage/emulated/0/DCIM
 swift run droiddrive-usb adb-info            # adb server phải không giữ giao diện ADB
 ```
 
-## S0-d: FSKit với tài nguyên URL (đêm 14/11/2026, chưa xong)
+## S0-d: FSKit với tài nguyên URL (14–15/11/2026)
 
 **Câu hỏi.** FSKit trên macOS 26 có gắn được hệ thống tệp không dựa trên thiết bị khối không? Câu này được làm sớm vì liệt kê thư mục lớn qua File Provider không đạt mục 9 (fileproviderd mất khoảng 30 ms cho mỗi mục).
 
@@ -145,7 +145,25 @@ swift run droiddrive-usb adb-info            # adb server phải không giữ gi
 - Gatekeeper từ chối bản ký Development (`spctl --assess`: rejected). Để loại trừ chữ ký, bản thử được ký **Developer ID** của team cá nhân `43FEB573SC` (Xcode tạo chứng chỉ quản lý trên đám mây khi export `developer-id`), **notarize** (Accepted), staple, cài vào `/Applications`; Gatekeeper chấp nhận ("Notarized Developer ID"), không còn `get-task-allow`. **Công tắc vẫn không bật được**, `enabledModules.plist` vẫn không có module. Vậy chữ ký không phải nguyên nhân.
 - Log hệ thống (kể cả mức debug) không ghi gì từ `fskitd`, `fskit_agent` hay trang Cài đặt khi bấm công tắc. Giả thuyết còn lại: lỗi của Cài đặt hệ thống trên macOS 26.7.2 với module FSKit bên thứ ba, hoặc một khóa Info.plist còn thiếu. Người dùng đã tự thêm id module vào `enabledModules.plist` (bản cũ lưu ở `/tmp/enabledModules.bak`). `mount` vẫn báo "disabled" vì `fskit_agent` (chạy dưới tài khoản người dùng) giữ trạng thái trong bộ nhớ và không khởi động lại được: nó bỏ qua SIGTERM, còn `launchctl kickstart -k user/501/com.apple.fskit.fskit_agent` báo "Operation not permitted while System Integrity Protection is engaged". Bước kiểm tiếp theo: đăng xuất hoặc khởi động lại máy, rồi `mount -F -t droidspike 'droidspike://test?files=10000' /tmp/droidspike`.
 
-**Chưa đo được** tốc độ liệt kê, vì chưa gắn được.
+**Sau khi khởi động lại máy (15/11/2026): gắn được.** `fskit_agent` đọc lại `enabledModules.plist` (có id module do người dùng thêm), và `mount -F -t droidspike 'droidspike://test?files=10000' /tmp/droidspike` chạy: `mount` ghi `droidspike://test?files=10000 on /private/tmp/droidspike (droidspike, nodev, nosuid, noowners, noatime, fskit, mounted by tungns)`. Đọc `hello.txt` đúng nội dung.
+
+**Số đo** (`/usr/bin/time`, extension trả dữ liệu từ bộ nhớ, chưa có điện thoại phía sau):
+
+| Việc | FSKit | File Provider (cùng máy, emulator) |
+|---|---|---|
+| Liệt kê tên 10.000 mục (`ls -f`) | 0,11 giây | 401 giây lần đầu mở (fileproviderd tạo tệp giữ chỗ) |
+| Liệt kê kèm thuộc tính 10.000 mục (`ls -l`) | 1,68 giây (lần đầu 3,8 giây) | như trên |
+| `stat` một tệp, đọc một tệp nhỏ | 0,01 giây | |
+| Bộ nhớ của extension | 9 MB | 16–17 MB |
+
+Tức là phần chậm của File Provider (khoảng 30 ms mỗi mục) không có ở FSKit: chi phí còn lại là thời gian thật để lấy danh sách từ điện thoại, mà với ADB là khoảng 1,6 giây cho 10.000 mục (S0-b).
+
+**Kết luận S0-d:** có. FSKit trên macOS 26 gắn được hệ thống tệp lấy dữ liệu từ một URL, không cần thiết bị khối, và liệt kê thư mục lớn nhanh hơn File Provider hàng trăm lần. Hai điều phải tính khi chọn nó:
+
+1. **Bật module.** Công tắc trong Cài đặt hệ thống không bật được module bên thứ ba trên macOS 26.7.2 (đã thử bản ký Development, Developer ID, notarize, đặt ở `~/Applications` và `/Applications`). Chỉ bật được bằng cách thêm id vào `enabledModules.plist` rồi đăng nhập lại. Người dùng thường không làm được việc này; cần tìm cách bật chính thức (có thể là lỗi của macOS bản này, cần thử trên bản khác) trước khi dựa vào FSKit.
+2. **Khác File Provider về hành vi.** FSKit là một ổ thật: không có bản tải về để mở khi mất kết nối, không có hàng đợi sửa khi offline (FR-10), không có huy hiệu trạng thái; điện thoại rút ra thì ổ phải tháo. Đổi lại, liệt kê nhanh và không có thư mục giữ chỗ.
+
+Module bài thử vẫn đang được bật (id còn trong `enabledModules.plist`), để làm tiếp với FSKit mà không phải đăng nhập lại.
 
 ## S0-a và S0-d
 

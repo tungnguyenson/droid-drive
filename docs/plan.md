@@ -55,7 +55,7 @@ android-mac-transfer/
 
 | Giai đoạn | Nội dung | Ước lượng | Tiến độ (14/11/2026) |
 |---|---|---|---|
-| 0 | Bốn bài thử | 1 tuần | 1/4 ✅, 1 ◐ |
+| 0 | Bốn bài thử | 1 tuần | 2/4 ✅, 1 ◐ |
 | 1 | MVP qua ADB + USB | 3 tuần | 6/14 ✅, 8 ◐ |
 | 2 | MTP | 3 tuần | 0/9 ✅, 8 ◐ (chỉ thử với điện thoại giả) |
 | 3 | Wi-Fi | 2–3 tuần | 5/8 ✅, 3 ◐ |
@@ -71,7 +71,7 @@ Mỗi bài là một chương trình nhỏ bỏ đi sau khi xong, chỉ giữ l�
 | S0-a |  | Mở được giao diện MTP của điện thoại bằng `IOUSBHost` trên macOS 26 không, khi `ptpcamerad` đang chạy? Dừng `ptpcamerad` thì nó có chiếm lại không? | CLI Swift: tìm giao diện MTP, mở độc quyền, gửi `GetDeviceInfo`, `OpenSession`. Lặp lại sau `killall ptpcamerad`. Thử trên Pixel và Samsung | Thử `libmtp` + `libusb`; nếu cũng không được thì MTP chỉ là "thử nghiệm" trong bản đầu, đặc tả cập nhật mục 5.7 |
 | S0-b | ◐ | Tự viết được bắt tay ADB qua USB tới `sync:` `LIST` không? | CLI Swift: tìm giao diện ADB, `CNXN`, `AUTH` (sinh khóa RSA, ký token), mở `sync:`, liệt kê `/sdcard` | Không có phương án thay thế tốt; đây là bài phải đạt. Nếu kẹt quá 3 ngày, cân nhắc đóng gói `adb` (quyết định 4 phải mở lại) |
 | S0-c | ✅ | File Provider replicated với dữ liệu giả có hiện trong Finder, đọc, ghi, đổi tên, và mất kết nối giả lập có đưa thao tác vào hàng đợi không? | App + extension tối thiểu, transport giả trong bộ nhớ, giao tiếp qua XPC Mach service trong app group | Không có phương án thay thế trong phạm vi đã chốt; ghi rõ giới hạn gặp phải và hỏi lại người dùng |
-| S0-d |  | FSKit trên macOS 26 có gắn được hệ thống tệp không dựa trên thiết bị khối không? | Đọc tài liệu FSKit bản mới nhất, dựng extension `FSUnaryFileSystem` từ FSKitSample, thử gắn với tài nguyên kiểu URL hoặc đường dẫn | Bỏ FSKit khỏi giai đoạn 5, ghi lý do |
+| S0-d | ✅ | FSKit trên macOS 26 có gắn được hệ thống tệp không dựa trên thiết bị khối không? | Đọc tài liệu FSKit bản mới nhất, dựng extension `FSUnaryFileSystem` từ FSKitSample, thử gắn với tài nguyên kiểu URL hoặc đường dẫn | Bỏ FSKit khỏi giai đoạn 5, ghi lý do |
 
 Xong khi: `docs/spikes.md` có kết luận cho cả bốn, và đặc tả được cập nhật nếu kết luận nào làm đổi thiết kế.
 
@@ -160,7 +160,7 @@ Trạng thái tối 14/11/2026. "Emulator" là Android Emulator (Android 15); "P
 | S0-a | Công cụ `droiddrive-usb` (`list`, `mtp-info`, `mtp-ls`, `mtp-pull`, `adb-info`) | Chạy với Pixel và Samsung cắm cáp, trước và sau `killall ptpcamerad` |
 | S0-b | Đạt qua TCP và qua adb server; ADB qua USB chạy với ống USB giả | Chạy qua USB thật |
 | S0-c | Đạt | |
-| S0-d | | Người dùng chốt ngày 14/11/2026: làm sớm, không đợi giai đoạn 5, vì liệt kê thư mục lớn qua File Provider không đạt mục 9 (xem P4-06) |
+| S0-d | Có: FSKit gắn được từ URL, liệt kê 10.000 mục trong 0,11 giây so với 401 giây qua File Provider (xem `spikes.md`) | Công tắc của Cài đặt hệ thống không bật được module bên thứ ba; quyết định có chuyển sang FSKit hay không |
 | P1-01 | Project, hai target, app group, entitlement; `.github/workflows/ci.yml` (test package, build app không ký) | Chạy CI trên GitHub |
 | P1-02 | Xong | |
 | P1-03 | `UsbKit`: theo dõi cắm rút, nhận diện giao diện, đọc tiến trình đang giữ, `UsbPacketLink`; app có nguồn ADB-USB tự dùng khi không có adb server | Mở giao diện USB thật lần đầu |
