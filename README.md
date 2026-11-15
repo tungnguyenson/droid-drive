@@ -19,6 +19,18 @@ App nằm trên thanh menu, có các cửa sổ Devices, Connect via Wi-Fi, Tran
 
 Lần đầu gắn, macOS để ổ ở trạng thái tắt. Bật DroidDrive trong Cài đặt hệ thống → Chung → Mục đăng nhập & Tiện ích mở rộng → File Provider; menu của DroidDrive có nút mở đúng trang này.
 
+## Dùng hằng ngày
+
+Bản dùng thật nằm ở `/Applications/DroidDrive.app` và tự chạy khi đăng nhập (Settings → Open at login); biểu tượng điện thoại trên thanh menu là nó. Mỗi lần cần lấy tệp:
+
+1. Trên điện thoại, bật Tùy chọn nhà phát triển → **Gỡ lỗi không dây** (Android tự tắt nó khi khởi động lại hoặc đổi mạng Wi-Fi). Điện thoại và Mac cùng một mạng Wi-Fi.
+2. Vài giây sau, menu DroidDrive hiện điện thoại "· Mounted" và ổ hiện trong thanh bên Finder (mục Locations). Không phải ghép đôi lại.
+3. Dùng ổ như một thư mục thường. Xong thì cứ tắt Gỡ lỗi không dây; tệp đã mở vẫn còn trên Mac, thay đổi chưa gửi sẽ gửi ở lần nối sau.
+
+Cắm cáp USB (chế độ "Truyền tệp", có Gỡ lỗi USB) cũng được, chưa thử với máy thật.
+
+Cập nhật bản dùng thật sau khi sửa code: build cấu hình Release như mục trên (thay `build` bằng `-configuration Release build`), thoát DroidDrive, chép `build/app/Build/Products/Release/DroidDrive.app` đè lên `/Applications/DroidDrive.app`, rồi mở lại.
+
 ## Nối điện thoại qua Wi-Fi
 
 Có hai cách. Cách của DroidDrive: menu → Connect via Wi-Fi…, rồi quét mã QR hoặc nhập mã 6 số; DroidDrive tự ghép đôi, tự kết nối và tự nối lại về sau. Cách qua adb: điện thoại nào adb server thấy thì DroidDrive cũng thấy. Với Android 11 trở lên: bật Gỡ lỗi không dây trong Tùy chọn nhà phát triển, chọn "Ghép nối thiết bị bằng mã ghép nối", rồi trên Mac chạy hai lệnh dưới đây (`adb mdns services` cho biết địa chỉ và cổng điện thoại đang quảng bá). Cổng của `pair` và của `connect` khác nhau, đều đọc trên màn hình điện thoại. Ổ đặt tên theo serial của điện thoại, nên đổi cổng hay chuyển giữa USB và Wi-Fi vẫn là cùng một ổ.

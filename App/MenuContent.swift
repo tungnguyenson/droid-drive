@@ -11,11 +11,9 @@ struct MenuContent: View {
     private var absentWithDrives: [DeviceRow] { manager.devices.filter { !$0.isConnected && $0.isMounted } }
 
     var body: some View {
-        if manager.failedSources[AdbServerSource().id] != nil && connected.isEmpty {
-            Text("adb is not running")
-            Text("DroidDrive finds phones through adb for now: run adb start-server")
-        } else if connected.isEmpty {
+        if connected.isEmpty {
             Text("No phone connected")
+            Text("On the phone, turn on Wireless debugging, or plug in a cable")
             Button("How to Connect a Phone…") { open(WindowID.devices) }
         }
         ForEach(connected) { device in

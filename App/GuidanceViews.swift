@@ -70,13 +70,14 @@ struct GettingStartedView: View {
     }
 }
 
-/// The adb server is DroidDrive's only device source until UsbKit lands.
+/// The adb server is optional: DroidDrive reaches phones over USB and paired Wi-Fi by
+/// itself; adb only matters for phones paired with `adb pair`.
 struct AdbServerNote: View {
     var body: some View {
         GroupBox {
             Label {
-                Text("DroidDrive finds phones through adb for now, and adb is not running. Start it with "
-                     + "adb start-server in Terminal (adb comes with Android Studio or Android platform-tools).")
+                Text("adb is not running. That is fine for phones connected by cable or paired in "
+                     + "Connect via Wi-Fi. Only phones paired with adb pair need it: run adb start-server in Terminal.")
                     .fixedSize(horizontal: false, vertical: true)
             } icon: {
                 Image(systemName: "terminal").foregroundStyle(.orange)
