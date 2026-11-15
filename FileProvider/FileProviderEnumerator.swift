@@ -2,7 +2,7 @@ import DroidCore
 import FileProvider
 import ItemStore
 
-/// Enumerates one folder, or the working set (spec §5.5 "Ánh xạ thao tác").
+/// Enumerates one folder, or the working set (spec §5.5 "Operation mapping").
 ///
 /// - Folder, first page: list the directory from the device into the store, then serve
 ///   pages of 500 from the store so Finder fills in as it scrolls.

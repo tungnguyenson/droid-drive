@@ -1,8 +1,12 @@
-// Signing for local development builds. Override in Config/Signing.local.xcconfig
-// (git-ignored) to use another team, e.g. the paid account needed for notarizing (plan §1).
+// Signing settings shared by every build. The team is not committed: put yours in
+// Config/Signing.local.xcconfig (git-ignored), for example
 //
-// 43FEB573SC is the "Personal Team" (free) found in Xcode on 2026-11-14.
-DEVELOPMENT_TEAM = 43FEB573SC
+//     DEVELOPMENT_TEAM = ABCDE12345
+//
+// The app group is "$(DEVELOPMENT_TEAM).com.droiddrive", so the team must be set for the
+// app and its File Provider extension to share data. Find your team id in Xcode →
+// Settings → Accounts, or with `security find-identity -v -p codesigning` (the OU field).
+DEVELOPMENT_TEAM =
 DROIDDRIVE_BUNDLE_PREFIX = dev.droiddrive
 CODE_SIGN_STYLE = Automatic
 

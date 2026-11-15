@@ -1,8 +1,8 @@
 import DroidCore
 import Foundation
 
-/// Quoting for paths that go into `sh -c` on the device (spec §5.4, "An toàn khi gọi
-/// shell"). Every path is single-quoted with embedded quotes closed, escaped, reopened,
+/// Quoting for paths that go into `sh -c` on the device (spec §5.4, "Shell
+/// safety"). Every path is single-quoted with embedded quotes closed, escaped, reopened,
 /// and every command puts `--` before its paths so a name starting with "-" is not an option.
 public enum ShellQuote {
     public static func quote(_ value: String) -> String {

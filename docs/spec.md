@@ -1,164 +1,164 @@
-# Đặc tả: ứng dụng gắn điện thoại Android vào Finder trên Mac
+# Specification: mounting Android phones in the Mac Finder
 
-Tài liệu này là đặc tả để làm lại một ứng dụng tương đương [MacDroid](https://www.macdroid.app/): một ứng dụng macOS gắn (mount) điện thoại Android thành một ổ đĩa trong Finder, để duyệt, mở, sửa, chép tệp qua lại như với ổ USB thường. Lý do cần nó: macOS không đọc được điện thoại Android qua cáp (Android dùng giao thức MTP, Mac chỉ hiểu PTP của máy ảnh), còn Android File Transfer của Google đã ngừng phát triển.
+This is the specification for rebuilding an app equivalent to [MacDroid](https://www.macdroid.app/): a macOS app that mounts an Android phone as a drive in Finder, so you can browse, open, edit and copy files both ways as with any USB drive. It is needed because macOS cannot read an Android phone over a cable (Android speaks MTP, the Mac only understands the cameras' PTP), and Google's Android File Transfer is no longer maintained.
 
-Mục tiêu: người đọc (người viết code, hoặc một agent) đọc xong biết phải làm những gì, theo thứ tự nào, mỗi phần xong khi nào. Phần 2 ghi lại MacDroid làm gì (kết quả tìm hiểu ngày 13/11/2026). Các phần sau đặc tả bản làm lại, tên tạm **DroidDrive**.
+Goal: a reader (a developer, or an agent) knows what to build, in which order, and when each part is done. Section 2 records what MacDroid does (researched on 13 November 2026). The remaining sections specify the rebuild, working name **DroidDrive**.
 
-Cách làm, tóm gọn: một ứng dụng Swift chạy ở thanh menu, giữ kết nối với điện thoại qua hai đường (MTP qua USB, ADB qua USB hoặc Wi-Fi), và đưa tệp vào Finder bằng File Provider, cơ chế chính thức của Apple cho ổ đám mây (iCloud Drive, Dropbox, Google Drive đều dùng). Ràng buộc định hình thiết kế: không dùng kernel extension hay macFUSE, để người dùng không phải cài thêm gì hay hạ mức bảo mật của máy.
+The approach in short: a Swift menu-bar app holds the connection to the phone over two routes (MTP over USB, ADB over USB or Wi-Fi) and puts the files in Finder with File Provider, Apple's official mechanism for cloud drives (iCloud Drive, Dropbox and Google Drive all use it). The constraint that shapes the design: no kernel extension and no macFUSE, so users do not have to install anything else or lower their Mac's security.
 
-## 1. Thuật ngữ
+## 1. Terms
 
-| Thuật ngữ | Nghĩa |
+| Term | Meaning |
 |---|---|
-| MTP (Media Transfer Protocol) | Giao thức truyền tệp qua USB mà Android bật khi người dùng chọn "Truyền tệp" trên điện thoại. Không cần bật gì thêm. Mở rộng từ PTP. |
-| PTP (Picture Transfer Protocol) | Giao thức gốc cho máy ảnh. MTP là PTP cộng thêm các lệnh về thuộc tính tệp. |
-| ADB (Android Debug Bridge) | Giao thức gỡ lỗi của Android. Cần bật "Gỡ lỗi USB" trong Tùy chọn nhà phát triển. Cho phép đọc ghi tệp nhanh hơn MTP và vào được thư mục hệ thống mà quyền shell đọc được. |
-| Gỡ lỗi không dây (Wireless debugging) | ADB qua Wi-Fi, có từ Android 11. Lần đầu phải ghép đôi (pairing) bằng mã QR hoặc mã 6 số. |
-| File Provider | Framework của Apple để một ứng dụng đưa một cây tệp "từ xa" vào Finder. Tệp nằm ở `~/Library/CloudStorage/`, hiện ở mục Locations trong thanh bên Finder. MacDroid gọi kiểu gắn này là "macOS Native Drive". |
-| Domain (File Provider) | Một "ổ" trong Finder. DroidDrive tạo một domain cho mỗi bộ nhớ của mỗi thiết bị (bộ nhớ trong, thẻ SD). |
-| FSKit | Framework của Apple (macOS 15.4 trở lên) để viết hệ thống tệp chạy ở user space, thay cho kernel extension và macFUSE. |
-| macFUSE | Thư viện bên thứ ba để viết hệ thống tệp, cần cài kernel extension hoặc FSKit backend. DroidDrive không dùng. |
-| Transport | Lớp nói chuyện với điện thoại (MTP hoặc ADB). Phía trên chỉ thấy một giao diện chung gồm liệt kê, đọc, ghi, xóa, đổi tên. |
-| Helper | Tiến trình nền của DroidDrive giữ kết nối với điện thoại. Ở đây chính là ứng dụng thanh menu. |
-| `ptpcamerad` | Tiến trình hệ thống của macOS tự chiếm thiết bị kiểu máy ảnh khi cắm vào. Nguyên nhân phổ biến nhất khiến công cụ MTP trên Mac "không thấy điện thoại". |
+| MTP (Media Transfer Protocol) | The USB file transfer protocol Android turns on when the user picks "File transfer" on the phone. Nothing else needs enabling. An extension of PTP. |
+| PTP (Picture Transfer Protocol) | The original protocol for cameras. MTP is PTP plus commands for file properties. |
+| ADB (Android Debug Bridge) | Android's debugging protocol. Needs "USB debugging" in Developer options. Reads and writes files faster than MTP and reaches the system folders the shell user can read. |
+| Wireless debugging | ADB over Wi-Fi, available since Android 11. The first time, the Mac pairs with a QR code or a 6-digit code. |
+| File Provider | Apple's framework for an app to put a "remote" file tree in Finder. The files live under `~/Library/CloudStorage/` and show under Locations in the Finder sidebar. MacDroid calls this mount type "macOS Native Drive". |
+| Domain (File Provider) | One "drive" in Finder. DroidDrive creates one domain per storage of each device (internal storage, SD card). |
+| FSKit | Apple's framework (macOS 15.4 and later) for user-space file systems, replacing kernel extensions and macFUSE. |
+| macFUSE | A third-party library for writing file systems; needs a kernel extension or the FSKit backend. DroidDrive does not use it. |
+| Transport | The layer that talks to the phone (MTP or ADB). The layers above see one interface: list, read, write, delete, rename. |
+| Helper | DroidDrive's background process that holds the connection to the phone. Here it is the menu-bar app itself. |
+| `ptpcamerad` | The macOS system process that grabs camera-like devices when they are plugged in. The most common reason Mac MTP tools "cannot see the phone". |
 
-## 2. MacDroid làm gì (kết quả tìm hiểu)
+## 2. What MacDroid does (research)
 
-Nguồn: trang chủ, trang giá, FAQ và lịch sử phiên bản của MacDroid (danh sách link ở phần 14). Phiên bản mới nhất lúc đọc: 2.10.1206, phát hành 30/06/2026, của Electronic Team, Inc.
+Sources: MacDroid's home page, pricing page, FAQ and version history (links in section 14). Latest version at the time of reading: 2.10.1206, released 30 June 2026, by Electronic Team, Inc.
 
-### 2.1 Tính năng và gói bán
+### 2.1 Features and tiers
 
 | | Free | PRO |
 |---|---|---|
-| Chép tệp từ điện thoại sang Mac, xem tệp trên điện thoại | Có | Có |
-| Chép tệp từ Mac sang điện thoại | Không | Có |
-| Sửa tệp ngay trên điện thoại, không cần chép về | Không | Có |
-| USB và Wi-Fi | (trang giá chỉ ghi ở PRO) | Có |
-| Thiết bị MTP khác: GoPro, Kindle, Garmin, Nintendo Switch, Oculus, Sony Walkman, Onyx Boox | | Có |
-| Giá | 0 | 34 USD trọn đời (gạch giá 49), hoặc 19 USD/năm có dùng thử 7 ngày |
+| Copy files from the phone to the Mac, view files on the phone | Yes | Yes |
+| Copy files from the Mac to the phone | No | Yes |
+| Edit files directly on the phone without copying them back | No | Yes |
+| USB and Wi-Fi | (the pricing page lists it under PRO only) | Yes |
+| Other MTP devices: GoPro, Kindle, Garmin, Nintendo Switch, Oculus, Sony Walkman, Onyx Boox | | Yes |
+| Price | 0 | USD 34 lifetime (struck-through 49), or USD 19 per year with a 7-day trial |
 
-Một bản quyền PRO dùng trên tối đa 5 máy Mac, không giới hạn số điện thoại. Bán qua Paddle và cả Mac App Store (bản App Store không có kiểu gắn macFUSE).
+One PRO licence covers up to 5 Macs and any number of phones. Sold through Paddle and on the Mac App Store (the App Store build has no macFUSE mount type).
 
-### 2.2 Ba cách kết nối
+### 2.2 Three ways to connect
 
-- **MTP**: cắm cáp, chọn "Truyền tệp" trên điện thoại. Chạy với cả thiết bị không phải Android. FAQ thừa nhận hai lỗi: thư mục rất nhiều tệp có thể hiện rỗng (cách khắc phục duy nhất họ đưa ra là chuyển sang ADB), và không kết nối được khi ứng dụng khác đang giữ thiết bị (ví dụ iPhoto).
-- **ADB**: bật Gỡ lỗi USB, bấm "Cho phép" trên điện thoại (có thể tích "Luôn cho phép từ máy tính này"). Họ quảng cáo là "mượt và nhanh hơn" và vào được thư mục hệ thống.
-- **Wi-Fi**: vẫn là ADB nhưng qua mạng. Android 11 trở lên ghép đôi bằng mã QR, mã 6 số, hoặc nhập tay IP + cổng + mã. Android 10 trở xuống nhập IP. Cách thứ ba: cắm USB một lần, MacDroid tự chuyển sang Wi-Fi. Mac và điện thoại phải cùng mạng Wi-Fi.
+- **MTP**: plug in the cable and choose "File transfer" on the phone. Works with non-Android devices too. The FAQ admits two problems: folders with very many files can show up empty (the only fix offered is switching to ADB), and it cannot connect while another app holds the device (iPhoto, for example).
+- **ADB**: turn on USB debugging and tap "Allow" on the phone (optionally ticking "Always allow from this computer"). Advertised as "smoother and faster", and it reaches system folders.
+- **Wi-Fi**: still ADB, over the network. Android 11 and later pair with a QR code, a 6-digit code, or IP + port + code typed in by hand. Android 10 and earlier take an IP. A third option: plug in USB once and MacDroid switches to Wi-Fi by itself. The Mac and the phone must be on the same Wi-Fi network.
 
-### 2.3 Ba kiểu gắn ổ
+### 2.3 Three mount types
 
-| Kiểu | MacDroid mô tả | Cơ chế (suy luận của tôi, trang không ghi) |
+| Type | How MacDroid describes it | Mechanism (my inference; the pages do not say) |
 |---|---|---|
-| macOS Native Drive (khuyên dùng) | "cách gắn ổ đám mây gốc của macOS", có từ macOS 11.3, làm việc được khi mất kết nối, thay đổi được đẩy lên khi kết nối lại | File Provider, kiểu replicated |
-| macFUSE Drive | cần cài macFUSE | macFUSE |
-| Network Drive | không cần cài gì, nhưng nhiều thao tác cùng lúc thì danh sách tệp tải chậm hoặc ổ bị ngắt | server WebDAV hoặc SMB chạy trên máy, Finder gắn như ổ mạng |
+| macOS Native Drive (recommended) | "the native macOS way of mounting cloud drives", since macOS 11.3, works offline, changes upload when the connection returns | File Provider, replicated |
+| macFUSE Drive | needs macFUSE installed | macFUSE |
+| Network Drive | nothing to install, but under many simultaneous operations listings load slowly or the drive drops | a WebDAV or SMB server on the Mac, mounted by Finder as a network drive |
 
-### 2.4 Giao diện và cài đặt
+### 2.4 UI and settings
 
-- Biểu tượng trên thanh menu, cửa sổ danh sách thiết bị, nút Mount/Unmount cho từng thiết bị, nút "Connect via Wi-Fi".
-- Cửa sổ Activity Log hiện các lượt truyền và tốc độ (thêm ở bản 2.5 và 2.8).
-- Finder hiện biểu tượng trạng thái trên tệp: đang tải về, đang tải lên, chờ tải lên, lỗi (thường do hết chỗ trên điện thoại hoặc trên Mac, hoặc rớt kết nối).
-- Cài đặt chung: mở cùng hệ thống, tự gắn khi mở ứng dụng, hiện ổ trên desktop, dùng tên ngắn trong thanh bên Finder, chọn thư mục cache (macOS 15+), thời gian giữ tệp cache, kéo thả là chép thay vì di chuyển, cho tài khoản khác trên máy thấy ổ (cần FUSE). Vài mục bị ẩn, giữ phím Option mới hiện.
-- Cài đặt theo thiết bị: chu kỳ làm mới nội dung, kiểu gắn (ẩn), xóa thiết bị.
-- Hỗ trợ AppleScript (từ 1.3), chip Apple (từ 1.4).
+- A menu-bar icon, a device list window, Mount/Unmount per device, a "Connect via Wi-Fi" button.
+- An Activity Log window with transfers and speeds (added in 2.5 and 2.8).
+- Finder shows status badges on files: downloading, uploading, waiting to upload, error (usually out of space on the phone or the Mac, or a dropped connection).
+- General settings: open at login, mount automatically when the app opens, show drives on the desktop, short names in the Finder sidebar, cache folder (macOS 15+), how long to keep cached files, drag-and-drop copies instead of moving, let other accounts on the Mac see the drives (needs FUSE). Some items are hidden until you hold Option.
+- Per-device settings: content refresh interval, mount type (hidden), remove device.
+- AppleScript support (since 1.3), Apple silicon (since 1.4).
 
-### 2.5 Điểm yếu của MacDroid mà bản làm lại nên làm tốt hơn
+### 2.5 MacDroid weaknesses the rebuild should do better
 
-1. Thư mục lớn qua MTP không hiện được. Nguyên nhân có thể đoán: liệt kê từng tệp một (`GetObjectInfo` cho mỗi tệp) thay vì lấy theo lô. Xem 5.3.
-2. Khi thiết bị bị ứng dụng khác chiếm, chỉ báo chung chung. Bản làm lại nên nói rõ tiến trình nào đang giữ và cách gỡ. Xem 5.7.
-3. Lỗi bảng mã tên tệp khi dùng rsync. Với tên tệp tiếng Việt, chuẩn hóa Unicode là bắt buộc. Xem 5.6.
-4. Ba kiểu gắn ổ với ba tập tính năng khác nhau, nhiều cài đặt chỉ áp dụng cho một kiểu. Bản làm lại chỉ có một kiểu.
+1. Large folders over MTP do not show. Likely cause: listing one file at a time (`GetObjectInfo` per file) instead of in batches. See 5.3.
+2. When another app holds the device, the message is generic. The rebuild should say which process holds it and how to free it. See 5.7.
+3. File-name encoding errors with rsync. With Vietnamese (or any accented) file names, Unicode normalization is mandatory. See 5.6.
+4. Three mount types with three different feature sets; many settings apply to only one type. The rebuild has a single type.
 
-## 3. Phạm vi
+## 3. Scope
 
-### 3.1 Làm
+### 3.1 In scope
 
-- Gắn bộ nhớ trong và thẻ SD của điện thoại Android vào Finder, đọc và ghi.
-- Kết nối qua MTP (USB), ADB (USB), ADB qua Wi-Fi (Android 11+ ghép đôi, Android 10 trở xuống qua `tcpip`).
-- Làm việc khi mất kết nối với các tệp đã tải về; thay đổi được đẩy lên khi kết nối lại.
-- Thanh menu, cửa sổ thiết bị, cửa sổ nhật ký truyền tệp, cài đặt.
-- Thiết bị MTP không phải Android (Kindle, GoPro…) ở mức "chạy được nếu thiết bị theo chuẩn MTP", không cam kết từng dòng máy.
+- Mount a phone's internal storage and SD card in Finder, read and write.
+- Connect over MTP (USB), ADB (USB), ADB over Wi-Fi (Android 11+ pairing, Android 10 and earlier through `tcpip`).
+- Work offline with files already downloaded; changes upload when the connection returns.
+- Menu bar, device window, transfer log window, settings.
+- Non-Android MTP devices (Kindle, GoPro…) at the level of "works if the device follows the MTP standard", with no per-model commitment.
 
-### 3.2 Không làm (ở bản đầu)
+### 3.2 Out of scope (first release)
 
-- macFUSE, kernel extension, kiểu ổ mạng.
-- Gói Free/PRO và thanh toán (xem mục Cần chốt).
-- Root, đọc phân vùng hệ thống ngoài quyền của shell ADB.
-- Sao lưu, đồng bộ hai chiều theo lịch, chiếu màn hình, tin nhắn.
+- macFUSE, kernel extensions, the network-drive type.
+- Free/PRO tiers and payments.
+- Root, reading system partitions beyond the ADB shell's permissions.
+- Backups, scheduled two-way sync, screen mirroring, messages.
 - Windows, Linux.
 
-## 4. Yêu cầu chức năng
+## 4. Functional requirements
 
-Mỗi yêu cầu có tiêu chí nghiệm thu, viết sao cho kiểm được bằng tay hoặc bằng test.
+Each requirement has acceptance criteria that can be checked by hand or by a test.
 
-| Mã | Yêu cầu | Nghiệm thu |
+| Id | Requirement | Acceptance |
 |---|---|---|
-| FR-01 | Phát hiện thiết bị khi cắm cáp | Thiết bị hiện trong menu trong vòng 2 giây sau khi điện thoại ở chế độ "Truyền tệp" hoặc đã cho phép ADB |
-| FR-02 | Chọn chế độ MTP hoặc ADB cho từng thiết bị, nhớ lựa chọn | Rút ra cắm lại, chế độ giữ nguyên. Nếu có cả hai, mặc định ADB (nhanh hơn, ít lỗi hơn) |
-| FR-03 | Gắn mỗi bộ nhớ thành một ổ trong Finder | Bộ nhớ trong và thẻ SD hiện thành hai mục trong thanh bên, tên dạng "Pixel 8 · Internal storage" (thẻ SD: "Pixel 8 · SD card 1A2B-3C4D") |
-| FR-04 | Duyệt thư mục | Thư mục 10.000 tệp hiện đủ qua cả MTP và ADB (đối chiếu với `adb shell ls \| wc -l`) |
-| FR-05 | Mở tệp từ Finder | Nhấp đúp ảnh, PDF, video mở bằng ứng dụng mặc định; tệp được tải về khi mở |
-| FR-06 | Chép, sửa, tạo, xóa, đổi tên, di chuyển tệp và thư mục | Mỗi thao tác làm trong Finder thấy được trên điện thoại (ứng dụng Files của Google) sau khi trạng thái tệp hết "đang tải lên" |
-| FR-07 | Tệp lớn hơn 4 GB | Chép một video 6 GB sang và về, checksum SHA-256 khớp |
-| FR-08 | Tên tệp Unicode | Tệp tên "Ảnh cưới Đà Lạt.jpg" tạo từ Mac hiện đúng trên điện thoại và ngược lại; không sinh hai bản trùng tên khác dạng chuẩn hóa |
-| FR-09 | Giữ thời gian sửa đổi | Chép tệp sang điện thoại qua ADB, `stat` trên điện thoại cho đúng mtime gốc. MTP: ghi nhận nếu thiết bị không hỗ trợ |
-| FR-10 | Làm việc khi mất kết nối | Rút cáp, tệp đã tải vẫn mở được; sửa một tệp, cắm lại, bản sửa được đẩy lên trong vòng 10 giây |
-| FR-11 | Thấy thay đổi từ phía điện thoại | Chụp ảnh mới, ảnh hiện trong Finder trong khoảng chu kỳ làm mới (mặc định 30 giây; MTP có sự kiện thì ngay) |
-| FR-12 | Kết nối Wi-Fi Android 11+ bằng mã QR | Quét QR trong mục Gỡ lỗi không dây, thiết bị hiện trong danh sách không cần gõ gì |
-| FR-13 | Kết nối Wi-Fi bằng mã 6 số và nhập tay IP:cổng | Như trên |
-| FR-14 | Kết nối Wi-Fi Android 10 trở xuống | Cắm USB một lần, bật "Chuyển sang Wi-Fi", rút cáp, ổ vẫn gắn |
-| FR-15 | Tự kết nối lại thiết bị Wi-Fi đã ghép đôi | Tắt bật Wi-Fi điện thoại, thiết bị tự kết nối lại khi cùng mạng, không cần ghép đôi lại |
-| FR-16 | Báo thiết bị bị chiếm | Khi `ptpcamerad` hoặc tiến trình khác giữ thiết bị, trạng thái ghi rõ tên tiến trình và có nút hướng dẫn gỡ (5.7) |
-| FR-17 | Nhật ký truyền tệp | Cửa sổ liệt kê từng lượt: thời gian, tệp, chiều, dung lượng, tốc độ, kết quả; lọc theo thiết bị và trạng thái |
-| FR-18 | Trạng thái tệp trong Finder | Tệp đang tải về, đang tải lên, chờ, lỗi có biểu tượng khác nhau |
-| FR-19 | Tháo ổ | Nút Unmount gỡ domain khỏi Finder; lượt truyền đang chạy được hỏi xác nhận trước khi hủy |
-| FR-20 | Xóa thiết bị | Xóa domain, cache và khóa ghép đôi Wi-Fi của thiết bị |
+| FR-01 | Detect a device when the cable is plugged in | The device shows in the menu within 2 seconds after the phone is in "File transfer" mode or has allowed ADB |
+| FR-02 | Choose MTP or ADB per device and remember the choice | Unplug and replug: the mode stays. If both are available, ADB is the default (faster, fewer bugs) |
+| FR-03 | Mount each storage as a drive in Finder | Internal storage and SD card show as two sidebar items, named like "Pixel 8 · Internal storage" (SD card: "Pixel 8 · SD card 1A2B-3C4D") |
+| FR-04 | Browse folders | A 10,000-file folder lists completely over both MTP and ADB (compared with `adb shell ls \| wc -l`) |
+| FR-05 | Open files from Finder | Double-clicking a photo, PDF or video opens it in the default app; the file downloads on open |
+| FR-06 | Copy, edit, create, delete, rename and move files and folders | Every operation done in Finder is visible on the phone (Google's Files app) once the file no longer shows "uploading" |
+| FR-07 | Files larger than 4 GB | A 6 GB video copied there and back has a matching SHA-256 |
+| FR-08 | Unicode file names | A file named "Ảnh cưới Đà Lạt.jpg" created on the Mac shows correctly on the phone and vice versa; no two files differing only in normalization form |
+| FR-09 | Keep modification times | After copying a file to the phone over ADB, `stat` on the phone shows the original mtime. MTP: note it if the device does not support it |
+| FR-10 | Work offline | Unplug the cable: downloaded files still open; edit a file, plug back in, the edit uploads within 10 seconds |
+| FR-11 | See changes made on the phone | Take a new photo: it shows in Finder within the refresh interval (30 seconds by default; immediately with MTP events) |
+| FR-12 | Wi-Fi on Android 11+ with a QR code | Scan the QR code under Wireless debugging; the device appears in the list without typing anything |
+| FR-13 | Wi-Fi with a 6-digit code, or IP:port typed by hand | As above |
+| FR-14 | Wi-Fi on Android 10 and earlier | Plug in USB once, turn on "Switch to Wi-Fi", unplug: the drive stays mounted |
+| FR-15 | Reconnect paired Wi-Fi devices automatically | Turn the phone's Wi-Fi off and on: the device reconnects on the same network without pairing again |
+| FR-16 | Report a device held by another process | When `ptpcamerad` or another process holds the device, the status names the process and offers a how-to-fix button (5.7) |
+| FR-17 | Transfer log | A window lists each transfer: time, file, direction, size, speed, result; filter by device and status |
+| FR-18 | File status in Finder | Downloading, uploading, waiting and failed files have different badges |
+| FR-19 | Unmount | Unmount removes the domain from Finder; a running transfer asks for confirmation before it is cancelled |
+| FR-20 | Remove a device | Removes the device's domains, cache and Wi-Fi pairing keys |
 
-## 5. Kiến trúc
+## 5. Architecture
 
-### 5.1 Các tiến trình
+### 5.1 Processes
 
 ```
-┌──────────────── DroidDrive.app (thanh menu, mở cùng hệ thống) ───────────────┐
+┌──────────────── DroidDrive.app (menu bar, opens at login) ───────────────────┐
 │ UI (SwiftUI)        DeviceManager            TransferQueue / ActivityLog       │
 │                      ├─ UsbWatcher (IOKit)                                     │
 │                      ├─ WifiDiscovery (mDNS)                                    │
 │                      └─ DeviceSession × N ── Transport: MtpTransport            │
 │                                                       │ AdbTransport (USB/TCP) │
-│ ExtensionLinker: nối vào service của từng domain ◄─────────────────────────┐  │
+│ ExtensionLinker: connects to each domain's service ◄────────────────────────┐  │
 └────────────────────────────────────────────────────────────────────────────│──┘
                                                                              │ XPC
-┌──────────── DroidDriveFileProvider.appex (do macOS khởi chạy) ─────────────┴──┐
-│ NSFileProviderReplicatedExtension, một instance cho mỗi domain                 │
-│ ItemStore (SQLite trong app group): identifier ↔ đường dẫn, metadata          │
+┌──────────── DroidDriveFileProvider.appex (started by macOS) ───────────────┴──┐
+│ NSFileProviderReplicatedExtension, one instance per domain                     │
+│ ItemStore (SQLite in the app group): identifier ↔ path, metadata              │
 └────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Vì sao ứng dụng chính giữ kết nối mà không để extension giữ: giao diện USB chỉ một tiến trình được chiếm cùng lúc, còn macOS có thể dừng extension bất cứ lúc nào. Một nơi giữ phiên duy nhất, extension chỉ là khách.
+Why the main app holds the connection instead of the extension: only one process can claim a USB interface at a time, and macOS can stop the extension at any moment. One place owns the session; the extension is a guest.
 
-**Cách nối XPC (làm ngày 14/11/2026).** Thiết kế ban đầu là một Mach service trong app group do ứng dụng mở. Cách này không chạy: một tiến trình không do launchd khởi chạy không đăng ký được Mach service (`NSXPCListener(machServiceName:)` báo "lookup error 3", bản sandbox thử nghiệm crash ngay khi mở). Vì vậy kết nối đi theo chiều ngược lại:
+**How the XPC link works (built 14 November 2026).** The original design was a Mach service in the app group, opened by the app. That does not work: a process launchd did not start cannot register a Mach service (`NSXPCListener(machServiceName:)` reports "lookup error 3", and the sandboxed test build crashed at launch). So the connection runs the other way:
 
-- Extension mở một `NSFileProviderServiceSource` cho mỗi domain, chỉ nhận tiến trình được quản lý domain đó. Phía sau là một `NSXPCListener` ẩn danh, kiểm chữ ký mã của bên nối vào (cùng bundle id và team).
-- Ứng dụng nối vào bằng `NSFileProviderManager.service(named:for:)`, đưa ra một `DeviceHost` chỉ được đụng tới bộ nhớ của domain đó (mọi đường dẫn kiểm theo gốc bộ nhớ, từ chối `..`, không cho xóa hay đổi tên gốc).
-- Khi extension cần điện thoại mà chưa có kết nối, nó gửi một Darwin notification riêng của domain và chờ tối đa 4 giây cho ứng dụng nối vào.
-- Ứng dụng không chạy thì mọi lệnh báo `disconnected` (thành `serverUnreachable`) và trong 10 giây sau báo ngay, không chờ lại. Ứng dụng tắt vì thế giống như rút cáp: Finder giữ thay đổi và đẩy lên khi ứng dụng chạy lại (đo được 2 giây sau khi mở lại).
-- Nối mất 20–130 ms. macOS chạy một tiến trình extension cho mỗi domain và khởi động lại chúng khoảng 30 giây một lần.
+- The extension vends an `NSFileProviderServiceSource` per domain, which only accepts processes allowed to manage that domain. Behind it is an anonymous `NSXPCListener` that checks the code signature of the connecting process (same bundle id and team).
+- The app connects with `NSFileProviderManager.service(named:for:)` and exports a `DeviceHost` limited to that domain's storage (every path is checked against the storage root, `..` is rejected, the root cannot be deleted or renamed).
+- When the extension needs the phone and has no connection, it posts a per-domain Darwin notification and waits up to 4 seconds for the app to connect.
+- If the app is not running, every call reports `disconnected` (which becomes `serverUnreachable`), and for the next 10 seconds fails immediately instead of waiting again. A quit app therefore behaves like a pulled cable: Finder keeps the changes and uploads them when the app runs again (measured: 2 seconds after relaunch).
+- Linking takes 20–130 ms. macOS runs one extension process per domain and restarts them about every 30 seconds.
 
-Mã: `Packages/Sources/DeviceService/` (`XPCProtocols`, `DeviceHost`, `HostLink`, `RemoteDeviceTransport`, `DeviceRegistry`, `DeviceSource`), `App/ExtensionLinker.swift`, `App/DeviceSources.swift`. Mỗi cách tìm điện thoại (adb server, ADB qua USB, MTP, Wi-Fi) là một `DeviceSource`; `DeviceRegistry` gộp chúng theo `ro.serialno` và chọn kết nối tốt nhất (ADB-USB, rồi ADB-Wi-Fi, rồi MTP, hoặc MTP trước nếu người dùng chọn).
+Code: `Packages/Sources/DeviceService/` (`XPCProtocols`, `DeviceHost`, `HostLink`, `RemoteDeviceTransport`, `DeviceRegistry`, `DeviceSource`), `App/ExtensionLinker.swift`, `App/DeviceSources.swift`. Each way of finding phones (adb server, ADB over USB, MTP, Wi-Fi) is a `DeviceSource`; `DeviceRegistry` merges them by `ro.serialno` and picks the best connection (ADB-USB, then ADB-Wi-Fi, then MTP, or MTP first if the user prefers it).
 
-Nếu ứng dụng chưa chạy, extension trả `NSFileProviderError.serverUnreachable`; Finder giữ thay đổi trong hàng đợi và thử lại sau. Vì vậy "Mở cùng hệ thống" mặc định bật, đăng ký bằng `SMAppService.mainApp`.
+If the app is not running, the extension returns `NSFileProviderError.serverUnreachable`; Finder queues the changes and retries later. That is why "Open at login" is on by default, registered with `SMAppService.mainApp`.
 
-Truyền dữ liệu giữa extension và ứng dụng: extension tạo tệp tạm trong `NSFileProviderManager.temporaryDirectoryURL()`, gửi file descriptor qua XPC, ứng dụng ghi thẳng vào đó (hoặc đọc từ đó khi tải lên). Không đẩy byte qua XPC. Danh sách thư mục được kéo từng lô 500 mục; tiến độ và lệnh hủy đi trên cùng kết nối.
+Data between the extension and the app: the extension creates a temporary file in `NSFileProviderManager.temporaryDirectoryURL()` and sends its file descriptor over XPC; the app writes straight into it (or reads from it for uploads). No file bytes go through XPC messages. Directory listings are pulled in batches of 500 entries; progress and cancellation travel over the same connection.
 
-### 5.2 Giao diện transport chung
+### 5.2 Common transport interface
 
-Mọi tầng phía trên chỉ biết giao diện này. MTP và ADB mỗi bên một bản cài đặt, test dùng một bản giả trong bộ nhớ.
+Every layer above knows only this interface. MTP and ADB each implement it; tests use an in-memory fake.
 
 ```swift
 protocol DeviceTransport: Sendable {
-    var info: DeviceInfo { get }                       // hãng, model, serial, phiên bản Android
-    func storages() async throws -> [StorageInfo]      // id, tên, dung lượng, còn trống
-    func list(_ dir: RemotePath) -> AsyncThrowingStream<[RemoteEntry], Error>  // trả theo lô
+    var info: DeviceInfo { get }                       // manufacturer, model, serial, Android version
+    func storages() async throws -> [StorageInfo]      // id, name, capacity, free space
+    func list(_ dir: RemotePath) -> AsyncThrowingStream<[RemoteEntry], Error>  // in batches
     func stat(_ path: RemotePath) async throws -> RemoteEntry
     func read(_ path: RemotePath, to fd: FileHandle, range: Range<UInt64>?,
               progress: Progress) async throws
@@ -167,150 +167,151 @@ protocol DeviceTransport: Sendable {
     func mkdir(_ path: RemotePath) async throws -> RemoteEntry
     func delete(_ path: RemotePath, recursive: Bool) async throws
     func rename(_ from: RemotePath, to: RemotePath) async throws -> RemoteEntry
-    var changes: AsyncStream<ChangeHint> { get }       // MTP có sự kiện; ADB rỗng, dựa vào làm mới định kỳ
+    var changes: AsyncStream<ChangeHint> { get }       // MTP has events; ADB is empty and relies on periodic refresh
 }
 ```
 
-`RemoteEntry` gồm tên, đường dẫn, kiểu (tệp, thư mục, symlink), kích thước `UInt64`, mtime, và một khóa riêng của transport (handle MTP). Mọi lỗi được quy về một enum chung: `disconnected`, `busy(by: String?)`, `notFound`, `exists`, `noSpace`, `permissionDenied`, `unsupported`, `invalidName(String, reason:)` (tên vi phạm 5.6, kèm lý do để hiện cho người dùng), `protocolError(String)`.
+`RemoteEntry` holds the name, path, kind (file, folder, symlink), `UInt64` size, mtime, and a transport-private key (the MTP handle). Every error maps to one enum: `disconnected`, `busy(by: String?)`, `notFound`, `exists`, `noSpace`, `permissionDenied`, `unsupported`, `invalidName(String, reason:)` (a name that breaks 5.6, with a reason to show the user), `protocolError(String)`.
 
-Mỗi phiên chỉ chạy một lệnh MTP tại một thời điểm (MTP không cho chạy song song). ADB cho nhiều luồng song song trên một kết nối; giới hạn 4 luồng truyền cùng lúc mỗi thiết bị.
+A session runs one MTP operation at a time (MTP has no concurrency). ADB allows many streams on one connection; transfers are capped at 4 at once per device.
 
 ### 5.3 MTP
 
-**Tìm thiết bị.** Theo dõi cắm rút bằng `IOServiceAddMatchingNotification`. Một giao diện USB là MTP nếu: class 0x06, subclass 0x01, protocol 0x01; hoặc class 0xFF có chuỗi mô tả giao diện là "MTP" (Android khi bật cùng lúc MTP và ADB). Mỗi giao diện có ba endpoint: bulk vào, bulk ra, interrupt vào (sự kiện).
+**Finding devices.** Plug and unplug are watched with `IOServiceAddMatchingNotification`. A USB interface is MTP if it is class 0x06, subclass 0x01, protocol 0x01; or class 0xFF with the interface string "MTP" (Android with MTP and ADB both on). Each interface has three endpoints: bulk in, bulk out, interrupt in (events).
 
-**Truy cập USB.** Dùng `IOUSBHost` (`IOUSBHostInterface`, `IOUSBHostPipe`), mở giao diện độc quyền. Lỗi `kIOReturnExclusiveAccess` nghĩa là tiến trình khác đang giữ (5.7).
+**USB access.** `IOUSBHost` (`IOUSBHostInterface`, `IOUSBHostPipe`), opening the interface exclusively. `kIOReturnExclusiveAccess` means another process holds it (5.7).
 
-**Khung gói.** Mọi gói có tiêu đề 12 byte little-endian: độ dài (`UInt32`), loại (`UInt16`: 1 lệnh, 2 dữ liệu, 3 phản hồi, 4 sự kiện), mã (`UInt16`), transaction id (`UInt32`), rồi tối đa 5 tham số `UInt32`.
+**Container format.** Every packet has a 12-byte little-endian header: length (`UInt32`), type (`UInt16`: 1 command, 2 data, 3 response, 4 event), code (`UInt16`), transaction id (`UInt32`), then up to 5 `UInt32` parameters.
 
-**Lệnh dùng đến:**
+**Operations used:**
 
-| Việc | Lệnh | Ghi chú |
+| Task | Operation | Notes |
 |---|---|---|
-| Mở phiên | `GetDeviceInfo` 0x1001, `OpenSession` 0x1002 | `DeviceInfo` cho biết các lệnh thiết bị hỗ trợ; kiểm tra trước khi dùng lệnh mở rộng |
-| Bộ nhớ | `GetStorageIDs` 0x1004, `GetStorageInfo` 0x1005 | Mỗi storage id thành một domain |
-| Liệt kê thư mục | `GetObjectPropList` 0x9805 với handle thư mục, depth 1 | **Lấy tên, kích thước 64 bit, ngày sửa, định dạng của cả thư mục trong một lệnh.** Chỉ khi thiết bị không hỗ trợ mới rơi về `GetObjectHandles` 0x1007 + `GetObjectInfo` 0x1008 từng tệp. Đây là chỗ sửa điểm yếu 1 của MacDroid |
-| Đọc tệp | `GetPartialObject64` 0x95C1 (mở rộng Android), rơi về `GetObject` 0x1009 | Đọc theo khúc 1 MB để báo tiến độ và hủy được |
-| Ghi tệp mới | `SendObjectInfo` 0x100C rồi `SendObject` 0x100D | Kích thước trong `ObjectInfo` là `UInt32`; tệp ≥ 4 GB ghi `0xFFFFFFFF` và đặt kích thước thật qua thuộc tính `ObjectSize` 0xDC04 |
-| Sửa tệp có sẵn | `BeginEditObject` 0x95C4, `SendPartialObject` 0x95C2, `TruncateObject` 0x95C3, `EndEditObject` 0x95C5 | Mở rộng Android. Thiết bị không có thì tải lên một tệp tạm ẩn, xóa tệp cũ, rồi đổi tên tệp tạm, để tải lên hỏng giữa chừng không làm mất bản trên điện thoại; chỉ khi thiết bị cũng không đổi tên được mới xóa rồi ghi. Sửa bằng lệnh mở rộng thì điện thoại ghi giờ hiện tại, không giữ mtime của Mac (FR-09 chỉ đạt với tệp mới) |
-| Tạo thư mục | `SendObjectInfo` với định dạng Association 0x3001 | |
-| Xóa | `DeleteObject` 0x100B | |
-| Đổi tên | `SetObjectPropValue` 0x9804, thuộc tính `ObjectFileName` 0xDC07 | |
-| Di chuyển | `MoveObject` 0x1019 | Không có thì chép rồi xóa, báo người dùng là chậm |
-| Sự kiện | interrupt endpoint: `ObjectAdded` 0x4002, `ObjectRemoved` 0x4003, `StoreAdded` 0x4004, `StoreRemoved` 0x4005, `ObjectInfoChanged` 0x4007 | Chuyển thành `ChangeHint` |
+| Open a session | `GetDeviceInfo` 0x1001, `OpenSession` 0x1002 | `DeviceInfo` lists the operations the device supports; check before using an extension operation |
+| Storages | `GetStorageIDs` 0x1004, `GetStorageInfo` 0x1005 | Each storage id becomes a domain |
+| List a folder | `GetObjectPropList` 0x9805 with the folder handle, depth 1 | **Name, 64-bit size, modification date and format for the whole folder in one operation.** Only devices without it fall back to `GetObjectHandles` 0x1007 + `GetObjectInfo` 0x1008 per file. This fixes MacDroid weakness 1 |
+| Read a file | `GetPartialObject64` 0x95C1 (Android extension), falling back to `GetObject` 0x1009 | Read in 1 MB chunks for progress and cancellation |
+| Write a new file | `SendObjectInfo` 0x100C then `SendObject` 0x100D | The size in `ObjectInfo` is `UInt32`; files ≥ 4 GB write `0xFFFFFFFF` and set the real size through the `ObjectSize` 0xDC04 property |
+| Edit an existing file | `BeginEditObject` 0x95C4, `SendPartialObject` 0x95C2, `TruncateObject` 0x95C3, `EndEditObject` 0x95C5 | Android extension. Without it, upload to a hidden temporary file, delete the old file, then rename the temporary one, so a failed upload never loses the phone's copy; plain delete-then-write only when the device cannot rename either. Edits through the extension operations get the phone's current time, not the Mac's mtime (FR-09 holds for new files only) |
+| Create a folder | `SendObjectInfo` with format Association 0x3001 | |
+| Delete | `DeleteObject` 0x100B | |
+| Rename | `SetObjectPropValue` 0x9804, property `ObjectFileName` 0xDC07 | |
+| Move | `MoveObject` 0x1019 | Without it, copy then delete, and tell the user it is slow |
+| Events | interrupt endpoint: `ObjectAdded` 0x4002, `ObjectRemoved` 0x4003, `StoreAdded` 0x4004, `StoreRemoved` 0x4005, `ObjectInfoChanged` 0x4007 | Turned into `ChangeHint`s |
 
-Handle MTP chỉ đáng tin trong một phiên. Khi kết nối lại, dựng lại bảng đường dẫn → handle theo nhu cầu, không coi handle là identifier lâu dài.
+MTP handles are only valid within a session. After reconnecting, the path → handle table is rebuilt on demand; handles are never long-lived identifiers.
 
-**Ghi nhận khi làm (14/11/2026, chưa kiểm trên máy thật).**
+**Notes from building it (14 November 2026, not yet checked on a real phone).**
 
-- Đường dẫn MTP dùng chung dạng với ADB: bộ nhớ trong là `/storage/emulated/0`, thẻ SD là `/storage/<nhãn>` khi nhãn có dạng `XXXX-XXXX`, ngược lại `/storage/<storage id hex>`. Nhờ vậy một máy nối qua MTP hay ADB vẫn là cùng một ổ, miễn Android báo mã thẻ SD làm nhãn.
-- Tra đường dẫn theo đúng từng byte như ADB: dạng NFC và NFD là hai tệp khác nhau trên điện thoại. Ngày giờ MTP không có múi giờ; đọc và ghi theo giờ địa phương của Mac, tức là giả định điện thoại và Mac cùng múi giờ.
-- Sự kiện xóa một đối tượng chưa từng duyệt tới thành `ChangeHint.changed(root)`, nghĩa là "có gì đó đổi, không rõ ở đâu": phía File Provider phải làm mới cả cây.
-- Android để MTP ở class FF/FF/00 với chuỗi giao diện "MTP", PTP ở 6/1/1, ADB ở FF/42/01.
-- Hủy một lần truyền phải chạy lệnh hủy PTP trong một task riêng (chạy trong task đã bị hủy thì chính các lần truyền USB của lệnh hủy cũng bị dừng ngay), và sau đó bỏ phần dữ liệu IN còn sót (khoảng 100 ms).
-- IOUSBHost không có overlay Swift: các hàm có tên `__ioService:`, `__abort(with:)`, `__send(…)`; `kIOMessageServiceIsTerminated` và `kUSBHostReturnPipeStalled` không được import nên phải tự khai báo giá trị.
-- Mỗi giao diện USB có thuộc tính `UsbExclusiveOwner` cho biết ai đang giữ: driver kernel hiện tên class, tiến trình người dùng hiện dạng `"pid N, tên"`. Đây là cách DroidDrive biết `ptpcamerad` hay MacDroid đang giữ điện thoại (mục 5.7).
+- MTP paths use the same form as ADB: internal storage is `/storage/emulated/0`, an SD card is `/storage/<label>` when the label looks like `XXXX-XXXX`, otherwise `/storage/<storage id in hex>`. That way a phone is the same drive over MTP and ADB, provided Android reports the SD card id as its label.
+- Path lookups are byte-exact, as with ADB: NFC and NFD spellings are two different files on the phone. MTP dates carry no time zone; they are read and written as the Mac's local time, which assumes the phone and the Mac share a time zone.
+- Removing an object that was never browsed becomes `ChangeHint.changed(root)`, meaning "something changed, location unknown": the File Provider side must refresh the whole tree.
+- Android exposes MTP as class FF/FF/00 with the interface string "MTP", PTP as 6/1/1, ADB as FF/42/01.
+- Cancelling a transfer must run the PTP cancel in a separate task (run inside the cancelled task, the cancel's own USB transfers abort immediately), then drain leftover IN data (about 100 ms).
+- IOUSBHost has no Swift overlay: methods are named `__ioService:`, `__abort(with:)`, `__send(…)`; `kIOMessageServiceIsTerminated` and `kUSBHostReturnPipeStalled` are not imported and must be defined by value.
+- Every USB interface has a `UsbExclusiveOwner` property naming its holder: kernel drivers appear by class name, user processes as `"pid N, name"`. This is how DroidDrive tells that `ptpcamerad` or MacDroid holds the phone (5.7).
 
-**Phương án dự phòng:** nếu tự viết trên `IOUSBHost` gặp vướng ở bước thử nghiệm, dùng `libmtp` + `libusb` (LGPL 2.1, liên kết động). Tham khảo thêm OpenMTP (MIT, dùng thư viện Go `kalam`).
+**Fallback:** if building directly on `IOUSBHost` runs into trouble in the spike, use `libmtp` + `libusb` (LGPL 2.1, dynamically linked). See also OpenMTP (MIT, uses the Go library `kalam`).
 
 ### 5.4 ADB
 
-DroidDrive tự viết client ADB bằng Swift, không gọi binary `adb`. Tài liệu giao thức nằm trong mã nguồn AOSP: `packages/modules/adb/protocol.txt` và `SYNC.TXT`.
+DroidDrive has its own ADB client in Swift and never calls the `adb` binary. The protocol is documented in the AOSP sources: `packages/modules/adb/protocol.txt` and `SYNC.TXT`.
 
-**Tìm thiết bị qua USB.** Giao diện class 0xFF, subclass 0x42, protocol 0x01, hai endpoint bulk.
+**Finding devices over USB.** Interface class 0xFF, subclass 0x42, protocol 0x01, two bulk endpoints.
 
-**Tôn trọng adb server đang chạy.** Nếu người dùng có Android Studio, `adb` server của họ (cổng 5037 trên máy) đã chiếm giao diện USB. Khi đó DroidDrive không tranh, mà nói chuyện qua server đó: gửi `host:transport:<serial>` rồi `sync:` như một client adb thường. Có server thì dùng server, không có thì tự mở USB. Người dùng không phải biết điều này.
+**Respect a running adb server.** If the user has Android Studio, their `adb` server (port 5037 on the Mac) already holds the USB interface. DroidDrive then does not compete; it talks through that server: `host:transport:<serial>`, then `sync:`, like any adb client. With a server, use the server; without one, open USB directly. The user does not need to know.
 
-**Một điện thoại, một danh tính.** adb đặt tên cho kết nối, không cho điện thoại. Cùng một máy, qua USB là `R5CT20ABCDE`, qua Wi-Fi là `192.168.1.23:41234` (cổng đổi mỗi lần bật lại Gỡ lỗi không dây), qua mDNS là `adb-R5CT20ABCDE-…._adb-tls-connect._tcp`. Vì vậy ổ trong Finder đặt tên theo `ro.serialno` của điện thoại (máy không báo serial thì dùng serial của adb), và mọi kết nối cùng `ro.serialno` được gộp thành một dòng trong menu, ưu tiên USB. Trước khi ghi, extension kiểm lại `ro.serialno` của kết nối với serial của ổ. Hai máy khác nhau báo cùng serial (có máy rẻ để `0123456789ABCDEF`) được nhận ra nhờ `android_id` khác nhau: khi đó không gắn máy nào và menu báo "Trùng serial".
+**One phone, one identity.** adb names connections, not phones. The same phone is `R5CT20ABCDE` over USB, `192.168.1.23:41234` over Wi-Fi (the port changes every time Wireless debugging is turned back on), and `adb-R5CT20ABCDE-…._adb-tls-connect._tcp` through mDNS. So Finder drives are named after the phone's `ro.serialno` (falling back to the adb serial when the phone reports none), and all connections with the same `ro.serialno` merge into one menu row, preferring USB. Before writing, the extension checks the connection's `ro.serialno` against the drive's serial. Two different phones reporting the same serial (some cheap phones use `0123456789ABCDEF`) are told apart by different `android_id` values: then neither is mounted and the menu says "Duplicate serial".
 
-**Bắt tay.** Mỗi gói có tiêu đề 24 byte: command, arg0, arg1, độ dài dữ liệu, checksum, magic (= command XOR 0xFFFFFFFF). Lệnh: `CNXN`, `AUTH`, `OPEN`, `OKAY`, `WRTE`, `CLSE`, `STLS`. Gửi `CNXN` phiên bản 0x01000001, max data 1 MB, banner `host::features=shell_v2,cmd,stat_v2,ls_v2,fixed_push_mkdir,…`. Khi thiết bị đáp phiên bản ≥ 0x01000001 thì gửi checksum 0, như `adb`. Mỗi luồng chỉ có một `WRTE` chưa được `OKAY` theo mỗi chiều, và DroidDrive chỉ `OKAY` một `WRTE` của thiết bị khi đã đọc xong nó, để đĩa chậm thì điện thoại tự chậm theo thay vì dồn vào bộ nhớ.
+**Handshake.** Every packet has a 24-byte header: command, arg0, arg1, data length, checksum, magic (= command XOR 0xFFFFFFFF). Commands: `CNXN`, `AUTH`, `OPEN`, `OKAY`, `WRTE`, `CLSE`, `STLS`. Send `CNXN` with version 0x01000001, max data 1 MB, banner `host::features=shell_v2,cmd,stat_v2,ls_v2,fixed_push_mkdir,…`. When the device answers with version ≥ 0x01000001, send checksum 0, like `adb`. Each stream has at most one unacknowledged `WRTE` per direction, and DroidDrive only `OKAY`s a device `WRTE` once it has consumed it, so a slow disk slows the phone down instead of piling data up in memory.
 
-**Xác thực.** Sinh một cặp khóa RSA 2048 lần đầu chạy, lưu trong Keychain. Thiết bị gửi `AUTH` loại TOKEN; ký token, gửi lại loại SIGNATURE. Thiết bị chưa biết khóa thì gửi khóa công khai (loại RSAPUBLICKEY, định dạng `RSAPublicKey` riêng của Android, base64, kèm tên `droiddrive@<hostname>`); điện thoại hiện hộp thoại "Cho phép gỡ lỗi USB?". UI hiện hướng dẫn "Mở khóa điện thoại và bấm Cho phép".
+**Authentication.** Generate an RSA-2048 key pair on first run and keep it in the Keychain. The device sends `AUTH` type TOKEN; sign it and reply with type SIGNATURE. If the device does not know the key, send the public key (type RSAPUBLICKEY, Android's own `RSAPublicKey` format, base64, followed by the name `droiddrive@<hostname>`); the phone shows "Allow USB debugging?". The UI says "Unlock the phone and tap Allow".
 
-**Thao tác tệp:**
+**File operations:**
 
-| Việc | Cách |
+| Task | How |
 |---|---|
-| Liệt kê | dịch vụ `sync:`, lệnh `LIS2` (kích thước 64 bit), rơi về `LIST` nếu thiết bị không có `ls_v2` |
-| Stat | `STA2`, rơi về `STAT` |
-| Đọc cả tệp | `RECV` → các khúc `DATA` → `DONE`. `RCV2` chỉ thêm nén, chưa dùng; `RECV` không giới hạn 4 GB vì dữ liệu chảy theo khúc |
-| Đọc một khoảng | `exec:dd if=<path> bs=1M skip=… count=…` (luồng nhị phân sạch, khác `shell:`). Chỉ cần khi có FSKit (5.5) |
-| Ghi | `SEND` với `<path>,<mode>`, khúc `DATA` tối đa 64 KB (nhiều khúc gộp vào một `WRTE`), kết thúc `DONE <mtime>` (giữ được mtime). `SND2` chỉ thêm nén, chưa dùng |
-| Tạo thư mục, xóa, đổi tên | `shell,v2:` chạy `mkdir -p`, `rm -rf`, `mv`; đọc mã thoát |
-| Bộ nhớ | `shell:` chạy `df` và liệt kê `/storage`; bộ nhớ trong là `/storage/emulated/0`, thẻ SD là `/storage/XXXX-XXXX` |
+| List | `sync:` service, `LIS2` (64-bit sizes), falling back to `LIST` without `ls_v2` |
+| Stat | `STA2`, falling back to `STAT` |
+| Read a whole file | `RECV` → `DATA` chunks → `DONE`. `RCV2` only adds compression and is not used; `RECV` has no 4 GB limit because data streams in chunks |
+| Read a range | `exec:dd if=<path> bs=1M skip=… count=…` (a clean binary stream, unlike `shell:`). Only needed for an FSKit mount (5.5) |
+| Write | `SEND` with `<path>,<mode>`, `DATA` chunks of up to 64 KB (several packed into one `WRTE`), ending with `DONE <mtime>` (keeps the mtime). `SND2` only adds compression and is not used |
+| Create folder, delete, rename | `shell,v2:` running `mkdir -p`, `rm -rf`, `mv`; read the exit code |
+| Storages | `shell:` running `df` and listing `/storage`; internal storage is `/storage/emulated/0`, SD cards are `/storage/XXXX-XXXX` |
 
-**An toàn khi gọi shell:** đường dẫn luôn bọc trong nháy đơn và thoát mọi nháy đơn bên trong (`'` → `'\''`), luôn có `--` trước đường dẫn. Tên tệp đến từ người dùng và từ điện thoại; một tệp tên `a'; rm -rf /sdcard; '` không được chạy thành lệnh. Có test riêng cho việc này.
+**Shell safety:** paths are always wrapped in single quotes with every inner single quote escaped (`'` → `'\''`), always preceded by `--`. File names come from the user and from the phone; a file named `a'; rm -rf /sdcard; '` must never run as a command. There is a dedicated test for this.
 
 **Wi-Fi:**
 
-- **Android 10 trở xuống, hoặc "chuyển sang Wi-Fi" khi đang cắm cáp:** qua USB gửi dịch vụ `tcpip:5555`, đọc IP bằng `shell:ip route`, rồi mở TCP tới `<ip>:5555`. Nhớ IP và serial để tự kết nối lại.
-- **Android 11 trở lên, ghép đôi:** điện thoại quảng bá dịch vụ mDNS `_adb-tls-pairing._tcp`. Giao thức ghép đôi là SPAKE2 (trao đổi khóa dựa trên mật khẩu, mật khẩu là mã 6 số) chạy trên TLS; xong thì hai bên trao chứng chỉ, điện thoại lưu chứng chỉ của DroidDrive. SPAKE2 lấy từ BoringSSL (`include/openssl/curve25519.h`), đóng gói thành một module C nhỏ.
-- **Mã QR:** DroidDrive sinh chuỗi `WIFI:T:ADB;S:<random-service-name>;P:<random-password>;;` rồi vẽ QR. Điện thoại quét xong quảng bá `_adb-tls-pairing._tcp` với đúng tên dịch vụ đó; DroidDrive tìm thấy qua `NWBrowser` và ghép đôi bằng mật khẩu trong QR.
-- **Kết nối sau ghép đôi:** điện thoại quảng bá `_adb-tls-connect._tcp`. Gửi `CNXN`, điện thoại đáp `STLS`, hai bên nâng lên TLS 1.3 với chứng chỉ tự ký từ khóa RSA ở trên (`sec_protocol_options_set_local_identity`), rồi bắt tay ADB như thường.
-- **Tự kết nối lại:** khi thấy `_adb-tls-connect._tcp` của một thiết bị đã ghép đôi thì tự kết nối và gắn lại ổ.
+- **Android 10 and earlier, or "switch to Wi-Fi" while on a cable:** send the `tcpip:5555` service over USB, read the IP with `shell:ip route`, then open TCP to `<ip>:5555`. Remember the IP and serial to reconnect.
+- **Android 11 and later, pairing:** the phone advertises the mDNS service `_adb-tls-pairing._tcp`. Pairing is SPAKE2 (password-authenticated key exchange, the password being the 6-digit code) over TLS; afterwards both sides exchange certificates and the phone stores DroidDrive's. SPAKE2 comes from BoringSSL (`include/openssl/curve25519.h`), packaged as a small C module.
+- **QR code:** DroidDrive generates `WIFI:T:ADB;S:<random-service-name>;P:<random-password>;;` and draws it as a QR code. After scanning, the phone advertises `_adb-tls-pairing._tcp` with exactly that service name; DroidDrive finds it with `NWBrowser` and pairs with the password from the QR code.
+- **Connecting after pairing:** the phone advertises `_adb-tls-connect._tcp`. Send `CNXN`, the phone answers `STLS`, both sides upgrade to TLS 1.3 with a self-signed certificate from the RSA key above (`sec_protocol_options_set_local_identity`), then the usual ADB handshake follows.
+- **Reconnecting:** when the `_adb-tls-connect._tcp` service of a paired device shows up, connect and remount automatically.
 
-**Ghi nhận khi làm Wi-Fi (14/11/2026).** Ghép đôi đã chạy với emulator và với `adb pair` thật (cả hai chiều); kết nối TLS đã chạy với adbd của emulator.
+**Notes from building Wi-Fi (14 November 2026).** Pairing works with the emulator and with the real `adb pair` (both directions); the TLS connection works with the emulator's adbd and with a real Pixel 4 XL (Android 13).
 
-- Network.framework không nâng một kết nối TCP đang mở lên TLS được. Vì vậy kết nối được dựng sẵn là TLS chồng trên một `NWProtocolFramer` nhỏ chồng trên TCP: framer giữ TLS lại, tự chuyển `CNXN`/`STLS` dạng thường, rồi nhường đường.
-- Chi tiết byte của AOSP dễ sai: tên SPAKE2 có cả ký tự NUL ở cuối (`"adb pair client\0"`); nhãn exporter TLS là 10 byte `"adb-label\0"`; độ dài trong tiêu đề gói là big-endian; nonce AES-GCM là bộ đếm 8 byte little-endian đệm 0 thành 12 byte, mỗi chiều một bộ đếm; PeerInfo của điện thoại là GUID của máy, cũng là tên dịch vụ `_adb-tls-connect._tcp`.
-- macOS không có hàm công khai ghép một `SecKey` với chứng chỉ trong bộ nhớ. DroidDrive dựng một gói PKCS#12 rồi import: Apple bỏ qua khóa không mã hóa và từ chối gói không có MAC, nên khóa mã hóa PBES2/AES-256 và MAC là HMAC-SHA256. Trên macOS 13–14 việc import để lại một bản identity "DroidDrive ADB TLS" trong login keychain (chưa thử, máy thử chạy macOS 26).
-- BoringSSL chuyển sang C++ từ cuối 2024; `CSpake2` lấy từ tag 0.20240913.0, bản cuối còn viết bằng C.
-- Emulator có `ro.adb.secure=0` nên nhận cả khóa lạ; trường hợp điện thoại từ chối khóa chưa thử được.
+- Network.framework cannot upgrade an open TCP connection to TLS. So the connection is built as TLS over a small `NWProtocolFramer` over TCP: the framer holds TLS back, passes the plaintext `CNXN`/`STLS` itself, then steps aside.
+- AOSP byte details that are easy to get wrong: the SPAKE2 names include the trailing NUL (`"adb pair client\0"`); the TLS exporter label is the 10 bytes `"adb-label\0"`; the length in the packet header is big-endian; the AES-GCM nonce is an 8-byte little-endian counter zero-padded to 12 bytes, one counter per direction; the phone's PeerInfo is the device GUID, which is also its `_adb-tls-connect._tcp` service name.
+- macOS has no public call that pairs a `SecKey` with a certificate in memory. DroidDrive builds a PKCS#12 bundle and imports it: Apple ignores an unencrypted key and rejects a bundle without a MAC, so the key uses PBES2/AES-256 and the MAC is HMAC-SHA256. On macOS 13–14 the import leaves a "DroidDrive ADB TLS" identity in the login keychain (untested; the test Mac runs macOS 26).
+- BoringSSL moved to C++ in late 2024; `CSpake2` comes from tag 0.20240913.0, the last release where these files are C.
+- The emulator has `ro.adb.secure=0` and accepts any key; a phone rejecting the key has not been tested.
+- While DroidDrive holds a phone's Wi-Fi connection, the adb server lost the phone and `adb connect` to the advertised port failed. Android may accept only one wireless debugging client at a time; to be confirmed.
 
-### 5.5 Đưa tệp vào Finder
+### 5.5 Putting files in Finder
 
-**Bản đầu: File Provider, kiểu replicated** (`NSFileProviderReplicatedExtension`). Lý do: không cần cài thêm gì, chạy được cả ngoài và trong App Store, có sẵn hàng đợi khi mất kết nối, biểu tượng trạng thái và tiến độ trong Finder.
+**File Provider, replicated** (`NSFileProviderReplicatedExtension`). Why: nothing to install, works inside and outside the App Store, and comes with offline queueing, status badges and progress in Finder.
 
-**Identifier ổn định.** File Provider yêu cầu identifier của một item không đổi khi đổi tên hay di chuyển. Cả MTP handle lẫn đường dẫn đều không đạt điều đó. Vì vậy mỗi domain có một bảng SQLite `items(id TEXT PRIMARY KEY, parent_id, name, path, kind, size, mtime, version, transport_key)`; `id` là UUID sinh lần đầu thấy item. Đổi tên cập nhật `path`, giữ `id`. Item gốc dùng `NSFileProviderItemIdentifier.rootContainer`.
+**Stable identifiers.** File Provider requires an item's identifier to stay the same across renames and moves. Neither MTP handles nor paths do. So each domain has a SQLite table `items(id TEXT PRIMARY KEY, parent_id, name, path, kind, size, mtime, version, transport_key)`; `id` is a UUID generated the first time an item is seen. A rename updates `path` and keeps `id`. The root item uses `NSFileProviderItemIdentifier.rootContainer`.
 
-**Version của item** (dùng để phát hiện xung đột) = `size` + `mtime` gộp lại. Khi tải lên mà version trên điện thoại khác version Finder đang giữ thì có xung đột: giữ cả hai, đổi tên bản của Mac thành "Name (Mac copy).ext" (tên đó cũng có rồi thì "Name (Mac copy 2).ext"…). Tạo tệp mà điện thoại đã có tệp cùng tên Finder chưa biết cũng là xung đột, xử lý như trên; trùng tên thư mục thì gộp vào thư mục có sẵn.
+**Item version** (for conflict detection) = `size` + `mtime` combined. When an upload finds the phone's version different from the version Finder holds, that is a conflict: keep both, renaming the Mac's copy to "Name (Mac copy).ext" (or "Name (Mac copy 2).ext"… if that name exists too). Creating a file where the phone already has a same-named file Finder does not know about is also a conflict, handled the same way; a same-named folder is merged into the existing one.
 
-**Ánh xạ thao tác:**
+**Operation mapping:**
 
-| File Provider gọi | DroidDrive làm |
+| File Provider calls | DroidDrive does |
 |---|---|
-| `enumerator(for:)` → `enumerateItems` | `transport.list`, trả theo trang 500 item để Finder hiện dần, ghi vào ItemStore |
-| `enumerateChanges` (working set) | So ItemStore với lần liệt kê gần nhất của các thư mục đang mở; trả item đổi và bị xóa |
-| `fetchContents` | `transport.read` vào tệp tạm, trả URL |
-| `createItem` | `mkdir` hoặc `write` |
-| `modifyItem` | Đổi nội dung → `write`; đổi tên hoặc cha → `rename`; đổi mtime → ghi lại mtime nếu transport hỗ trợ |
+| `enumerator(for:)` → `enumerateItems` | `transport.list`, returned in pages of 500 items so Finder fills in gradually, recorded in the ItemStore |
+| `enumerateChanges` (working set) | Compare the ItemStore with the latest listing of open folders; return changed and deleted items |
+| `fetchContents` | `transport.read` into a temporary file, return its URL |
+| `createItem` | `mkdir` or `write` |
+| `modifyItem` | Content change → `write`; rename or new parent → `rename`; mtime change → write the mtime back if the transport supports it |
 | `deleteItem` | `delete(recursive: true)` |
-| Mất kết nối giữa chừng | Trả `serverUnreachable`; macOS giữ thao tác và gọi lại sau khi DroidDrive báo `signalErrorResolved` lúc kết nối lại |
+| Connection lost mid-operation | Return `serverUnreachable`; macOS keeps the operation and calls again after DroidDrive reports `signalErrorResolved` on reconnect |
 
-**Làm mới.** Mỗi thiết bị có chu kỳ làm mới (mặc định 30 giây, chọn 10 giây, 1, 5 phút, hoặc tắt). Đến chu kỳ, hoặc khi có sự kiện MTP, gọi `NSFileProviderManager.signalEnumerator(for: .workingSet)`. Chỉ liệt kê lại các thư mục Finder đã mở, cộng các thư mục tạo từ Mac (Finder không bao giờ liệt kê những thư mục này), không quét toàn bộ điện thoại. Khi thiết bị vừa kết nối lại thì báo ngay (`signalErrorResolved` rồi `signalEnumerator`), không chờ chu kỳ, để đạt FR-10.
+**Refresh.** Each device has a refresh interval (30 seconds by default; 10 seconds, 1 or 5 minutes, or off). On each tick, or on an MTP event, call `NSFileProviderManager.signalEnumerator(for: .workingSet)`. Only folders Finder has opened are listed again, plus folders created from the Mac (Finder never lists those); the whole phone is never scanned. When a device has just reconnected, signal immediately (`signalErrorResolved` then `signalEnumerator`) instead of waiting for the interval, to meet FR-10.
 
-**Bật ổ.** Trên macOS 26 (thử 14/11/2026, xem `spikes.md`), domain mới tạo ở trạng thái tắt cho tới khi người dùng bật DroidDrive trong Cài đặt hệ thống → Chung → Mục đăng nhập & Tiện ích mở rộng → File Provider. Trong lúc đó mọi thao tác trong thư mục đều hết giờ chờ. App đọc `NSFileProviderDomain.userEnabled`, và khi domain đang tắt thì thay menu bằng hướng dẫn kèm nút mở trang cài đặt đó.
+**Enabling the drive.** On macOS 26 (tested 14 November 2026, see `spikes.md`) a new domain starts disabled until the user turns DroidDrive on under System Settings → General → Login Items & Extensions → File Providers. Until then every operation in the folder times out. The app reads `NSFileProviderDomain.userEnabled` and, while a domain is disabled, replaces the menu with instructions and a button that opens that settings page.
 
-**Tháo ổ và mất kết nối.** Rút cáp: domain giữ nguyên, tệp đã tải vẫn mở được (FR-10). Unmount và Remove Device dùng `NSFileProviderManager.remove(domain, mode: .preserveDirtyUserData)`, hỏi trước nếu đang truyền tệp. Ghi nhận ngày 14/11/2026: ở cả hai chế độ giữ dữ liệu, macOS để lại một thư mục "<tên ổ> (ngày giờ)" chứa các tệp tạo từ Mac, kể cả tệp đã đẩy lên, và ứng dụng sandbox không được xóa thư mục đó. Gọi `NSFileProviderManager.add` với identifier đã có thì đổi tên ổ, dùng để đổi tên ổ do bản cũ đặt.
+**Unmounting and losing the connection.** Pulling the cable keeps the domain, and downloaded files still open (FR-10). Unmount and Remove Device use `NSFileProviderManager.remove(domain, mode: .preserveDirtyUserData)` and ask first if a transfer is running. Observed on 14 November 2026: in both preserving modes macOS leaves a "<drive name> (date)" folder holding files created on the Mac, even ones already uploaded, and a sandboxed app may not delete it. Calling `NSFileProviderManager.add` with an existing identifier renames the drive; this is used to rename drives named by older builds.
 
-**Trạng thái trong Finder.** Finder tự vẽ biểu tượng đám mây cho trạng thái chưa tải, đang tải, chờ tải lên, lỗi tải lên. Nếu cần biểu tượng riêng như MacDroid thì dùng decoration của File Provider (`NSFileProviderDecorations` trong Info.plist); kiểm tra phiên bản macOS hỗ trợ khi làm.
+**Status in Finder.** Finder draws cloud badges for not downloaded, downloading, waiting to upload and upload failed. A conflict copy gets an extra badge through File Provider decorations (`NSFileProviderDecorations` in the extension's Info.plist).
 
-**Giới hạn của File Provider, cần biết trước:** mở tệp là tải cả tệp về. Xem một video 10 GB nghĩa là chờ chép 10 GB. Và ổ nằm ở `~/Library/CloudStorage/DroidDrive-<domain-name>`, không phải `/Volumes/`. Hai điều này là lý do có giai đoạn FSKit.
+**File Provider limits to know up front:** opening a file downloads the whole file, so watching a 10 GB video means copying 10 GB first. The drive lives at `~/Library/CloudStorage/DroidDrive-<domain-name>`, not under `/Volumes/`. And listing a large folder the first time is slow (section 9).
 
-**Giai đoạn sau: FSKit** (macOS 15.4 trở lên). Một `FSUnaryFileSystem` cho mỗi bộ nhớ, gắn vào `/Volumes/<volume-name>`, đọc theo khoảng (MTP `GetPartialObject64`, ADB `exec:dd`), nên phát video không cần chép trước. Rủi ro: bản FSKit đầu tiên hướng tới hệ thống tệp trên thiết bị khối; cần một bước thử nghiệm xác nhận phiên bản macOS hiện tại có kiểu tài nguyên không phải thiết bị khối (theo URL hoặc đường dẫn) trước khi cam kết. Người dùng phải bật extension trong Cài đặt hệ thống → Chung → Mục đăng nhập & Tiện ích mở rộng → Tiện ích mở rộng hệ thống tệp.
+**FSKit (spike S0-d, not adopted).** FSKit on macOS 26 can mount a file system backed by a URL (`FSGenericURLResource`) instead of a block device, and lists 10,000 entries in 0.11 seconds against 401 seconds through File Provider. It was not adopted: on macOS 26.x the System Settings switch cannot enable a third-party FSKit module (a macOS bug, fixed in 27.0), and a sandboxed app cannot run `mount -F` itself. DroidDrive is for personal use, so File Provider stays. Details in `spikes.md`.
 
-### 5.6 Tên tệp, thời gian, dung lượng
+### 5.6 File names, times, sizes
 
-- **Chuẩn hóa Unicode.** macOS có thể đưa tên tệp ở dạng NFD (dấu tách rời), Android lưu đúng byte nhận được. Tên gửi xuống điện thoại luôn chuyển sang NFC. Khi so khớp tên (tìm trùng, xung đột), so theo NFC. Thiếu bước này, "Đà Lạt.jpg" từ Mac thành một tệp khác với "Đà Lạt.jpg" chụp trên điện thoại. Ngược lại, tên đọc từ điện thoại giữ nguyên byte (một ứng dụng Android có thể đã tạo tên dạng NFD), vì phải dùng đúng byte đó để gọi lại tệp. Lưu ý khi viết code: `String ==` của Swift so theo tương đương chính tắc, NFC và NFD bằng nhau, nên kiểm byte phải so `.utf8`.
-- **Ký tự Android không cho phép** trong tên tệp trên bộ nhớ chung (`"*/:<>?\|`): từ chối với lỗi rõ ràng, không tự đổi tên.
-- **Kích thước** luôn `UInt64`. MTP dùng thuộc tính `ObjectSize`, ADB dùng `LIS2`/`STA2`.
-- **Hết chỗ:** kiểm tra dung lượng trống trước khi ghi tệp lớn hơn 100 MB, báo lỗi `noSpace` sớm thay vì hỏng giữa chừng. Khi ghi đè, chỉ phần lớn thêm so với tệp cũ mới cần chỗ.
+- **Unicode normalization.** macOS may hand over names in NFD (decomposed accents); Android stores the bytes it receives. Names sent to the phone are always converted to NFC. Name comparisons (duplicates, conflicts) use NFC. Without this, "Đà Lạt.jpg" from the Mac becomes a different file from "Đà Lạt.jpg" taken on the phone. Names read from the phone keep their exact bytes (an Android app may have created an NFD name), because those bytes are needed to address the file again. Note for code: Swift's `String ==` compares by canonical equivalence, so NFC and NFD compare equal; byte checks must compare `.utf8`.
+- **Characters Android rejects** in names on shared storage (`"*/:<>?\|`): refuse with a clear error, never rename silently.
+- **Sizes** are always `UInt64`. MTP uses the `ObjectSize` property, ADB uses `LIS2`/`STA2`.
+- **Out of space:** check free space before writing files larger than 100 MB and fail early with `noSpace` instead of half way. When overwriting, only the growth over the old file needs space.
 
-### 5.7 Thiết bị bị tiến trình khác chiếm
+### 5.7 Device held by another process
 
-Khi mở giao diện USB nhận `kIOReturnExclusiveAccess`:
+When opening the USB interface returns `kIOReturnExclusiveAccess`:
 
-1. Tìm tiến trình đang giữ: duyệt cây IORegistry của thiết bị, đọc thuộc tính client của giao diện (`IOUserClientCreator` có dạng `pid 2100, ptpcamerad`).
-2. Hiện trạng thái "Bị chiếm bởi <process-name>" và gợi ý theo từng trường hợp:
-   - `ptpcamerad`: giải thích đây là dịch vụ ảnh của macOS, có nút "Thử lại" kèm lệnh dừng tiến trình (`killall ptpcamerad`, tiến trình chạy dưới tài khoản người dùng); nếu nó tự chiếm lại, gợi ý chuyển sang ADB.
-   - Android File Transfer, Smart Switch, OpenMTP, adb server của Android Studio (với ADB đã xử lý ở 5.4): bảo người dùng thoát ứng dụng đó.
-3. Thử lại tự động mỗi 3 giây trong 30 giây.
+1. Find the holder: walk the device's IORegistry subtree and read the interface's client property (`IOUserClientCreator` looks like `pid 2100, ptpcamerad`).
+2. Show "In use by <process-name>" with advice per case:
+   - `ptpcamerad`: explain that it is the macOS photo service and offer "Try again" together with the command that stops it (`killall ptpcamerad`; it runs under the user's account); if it grabs the device again, suggest switching to ADB.
+   - Android File Transfer, Smart Switch, OpenMTP, Android Studio's adb server (ADB is covered in 5.4): ask the user to quit that app.
+3. Retry automatically every 3 seconds for 30 seconds.
 
-Hành vi của `ptpcamerad` trên macOS 26 chưa được xác minh; đây là việc đầu tiên của giai đoạn thử nghiệm (phần 11).
+The behaviour of `ptpcamerad` on macOS 26 is not verified yet; it is the first task of the spike phase (section 11).
 
-## 6. Giao diện
+## 6. User interface
 
-**Thanh menu (luôn có).** Biểu tượng điện thoại; có chấm xanh khi có thiết bị đang gắn, vòng xoay khi đang truyền. Menu:
+**Menu bar (always present).** A phone icon; a filled icon when a device is mounted, a transfer icon while transferring. Menu:
 
 ```
 Pixel 8 (ADB · USB)                ● Mounted
@@ -326,117 +327,119 @@ Settings…
 Quit DroidDrive
 ```
 
-**Cửa sổ Thiết bị.** Thanh bên liệt kê thiết bị (đã từng kết nối, mờ nếu đang vắng). Khung chính: model, phiên bản Android, kiểu kết nối, từng bộ nhớ với thanh dung lượng, chọn chế độ MTP/ADB, nút Gắn/Tháo, chu kỳ làm mới, Xóa thiết bị. Khi điện thoại cắm vào mà chưa bật "Truyền tệp" hay chưa cho phép ADB, khung chính là hướng dẫn từng bước có hình, không phải thông báo lỗi.
+**Devices window.** A sidebar lists devices (all ever connected, dimmed when absent). The main pane: model, Android version, connection kind, each storage with a capacity bar, MTP/ADB choice, Mount/Unmount, refresh interval, Remove Device. When a phone is plugged in without "File transfer" or without allowing ADB, the main pane is a step-by-step guide, not an error message.
 
-**Kết nối qua Wi-Fi (sheet).** Bốn tab: Mã QR (mặc định), Mã ghép đôi, Nhập tay (IP, cổng, mã), Android 10 trở xuống (IP). Tab Mã ghép đôi tự liệt kê các điện thoại đang quảng bá `_adb-tls-pairing._tcp`, người dùng chỉ chọn và gõ 6 số.
+**Connect via Wi-Fi (sheet).** Four tabs: QR code (default), Pairing code, Manual (IP, port, code), Android 10 and earlier (IP). The Pairing code tab lists the phones currently advertising `_adb-tls-pairing._tcp`; the user just picks one and types 6 digits.
 
-**Nhật ký truyền tệp.** Bảng: thời gian, thiết bị, tệp, chiều (↓ về Mac, ↑ lên điện thoại), dung lượng, tốc độ trung bình, kết quả. Lọc theo thiết bị và kết quả, nút xóa nhật ký. Giữ 7 ngày.
+**Transfer log.** A table: time, device, file, direction (↓ to the Mac, ↑ to the phone), size, average speed, result. Filter by device and result, a button to clear the log. Kept for 7 days.
 
-**Ngôn ngữ.** Giao diện chỉ có tiếng Anh, kể cả tên ổ, tên bản xung đột và thông báo lỗi (người dùng chốt ngày 14/11/2026). Tài liệu trong repo vẫn viết tiếng Việt.
+**Language.** The UI is English only, including drive names, conflict-copy names and error messages (decided 14 November 2026). The repository docs are English as well (since the repository became public open source, 15 November 2026).
 
-## 7. Cài đặt
+## 7. Settings
 
-| Mục | Mặc định | Ghi chú |
+| Item | Default | Notes |
 |---|---|---|
-| Mở cùng hệ thống | Bật | `SMAppService.mainApp` |
-| Tự gắn khi thiết bị kết nối | Bật | |
-| Chế độ ưu tiên khi có cả MTP và ADB | ADB | |
-| Chu kỳ làm mới mặc định | 30 giây | Ghi đè được theo thiết bị |
-| Thời gian giữ tệp đã tải khi không dùng | Để macOS tự quản | File Provider tự dọn khi thiếu chỗ; thêm nút "Giải phóng dung lượng" để dọn ngay |
-| Hiện thông báo khi truyền xong tệp lớn hơn | 500 MB | |
-| Khóa ghép đôi | | Nút "Tạo khóa ADB mới" (điện thoại sẽ hỏi cho phép lại) |
+| Open at login | On | `SMAppService.mainApp` |
+| Mount automatically when a device connects | On | |
+| Preferred mode when both MTP and ADB are available | ADB | |
+| Default refresh interval | 30 seconds | Can be overridden per device |
+| How long unused downloaded files are kept | Left to macOS | File Provider cleans up when space runs low; a "Free Up Space" button cleans up now |
+| Notify when a transfer larger than this finishes | 500 MB | |
+| Pairing key | | "Generate new ADB key" button (phones will ask to allow again) |
 
-Không có mục ẩn sau phím Option.
+Nothing is hidden behind the Option key.
 
-## 8. Quyền, entitlement, phân phối
+## 8. Permissions, entitlements, distribution
 
-| Cần | Vì sao |
+| Needed | Why |
 |---|---|
-| App Sandbox + `com.apple.security.device.usb` | Mở thiết bị USB |
-| `com.apple.security.network.client` và `network.server` | ADB qua TCP; server cho bước ghép đôi |
-| `NSLocalNetworkUsageDescription` + `NSBonjourServices` gồm `_adb-tls-pairing._tcp`, `_adb-tls-connect._tcp`, `_adb._tcp` | Quyền mạng cục bộ (từ macOS 15 bắt buộc); MacDroid bản 2.3 cũng phải thêm bước kiểm tra quyền này |
-| App group `<TEAMID>.com.droiddrive` | Chia sẻ ItemStore và Mach service XPC giữa app và extension |
-| Keychain access group | Khóa RSA của ADB |
+| App Sandbox + `com.apple.security.device.usb` | Open USB devices |
+| `com.apple.security.network.client` and `network.server` | ADB over TCP; the server side for pairing |
+| `NSLocalNetworkUsageDescription` + `NSBonjourServices` with `_adb-tls-pairing._tcp`, `_adb-tls-connect._tcp`, `_adb._tcp` | Local network permission (mandatory since macOS 15); MacDroid 2.3 also had to add a check for it |
+| App group `<TEAMID>.com.droiddrive` | Share the ItemStore and the transfer log between app and extension |
+| Keychain | The ADB RSA key |
 
-Phân phối bản đầu: Developer ID, notarize, cập nhật qua Sparkle. Mọi thứ trên đều tương thích Mac App Store nên có thể đưa lên sau.
+Distribution: Developer ID and notarization when a public build is wanted (`scripts/release.sh`); no update feed yet. Everything above is Mac App Store compatible, so it could go there later.
 
-macOS tối thiểu: 13 (Ventura). Chip Apple và Intel (universal binary).
+Minimum macOS: 13 (Ventura). Apple silicon and Intel (universal binary).
 
-## 9. Hiệu năng
+## 9. Performance
 
-Đo tương đối với công cụ chuẩn trên cùng máy, cùng cáp, để con số không phụ thuộc phần cứng.
+Measured relative to the standard tools on the same Mac and cable, so the numbers do not depend on hardware.
 
-| Chỉ số | Mục tiêu |
+| Metric | Target |
 |---|---|
-| Tốc độ ADB qua USB, tệp 1 GB | ≥ 80% tốc độ `adb push` / `adb pull` |
-| Tốc độ MTP qua USB | ≥ 80% tốc độ OpenMTP hoặc MacDroid trên cùng thiết bị |
-| Liệt kê thư mục 1.000 tệp | ≤ 1,5 giây (ADB), ≤ 3 giây (MTP có `GetObjectPropList`) |
-| Liệt kê thư mục 10.000 tệp | Trang đầu ≤ 2 giây, đủ cả thư mục ≤ 15 giây |
-| Bộ nhớ của app khi rảnh | ≤ 150 MB |
-| CPU khi rảnh, có 2 thiết bị gắn | ≤ 1% trung bình |
+| ADB over USB, 1 GB file | ≥ 80% of `adb push` / `adb pull` |
+| MTP over USB | ≥ 80% of OpenMTP or MacDroid on the same device |
+| Listing a 1,000-file folder | ≤ 1.5 seconds (ADB), ≤ 3 seconds (MTP with `GetObjectPropList`) |
+| Listing a 10,000-file folder | First page ≤ 2 seconds, complete ≤ 15 seconds |
+| App memory when idle | ≤ 150 MB |
+| CPU when idle with 2 devices mounted | ≤ 1% on average |
 
-Đo ngày 14/11/2026 (chi tiết ở `spikes.md`): bộ nhớ extension 16–17 MB, ứng dụng 40–55 MB; CPU ứng dụng 0,96% khi rảnh với 3 ổ của 2 máy; tốc độ đạt ở cả emulator và Pixel qua Wi-Fi. **Liệt kê qua Finder không đạt**: thư mục 1.000 tệp mất 30 giây lần đầu mở, dù extension trả mỗi trang 500 mục trong dưới 0,25 giây. Thời gian nằm ở fileproviderd tạo một tệp giữ chỗ cho mỗi mục, khoảng 30 ms một mục trên máy thử. Với File Provider replicated, mục tiêu 1,5 và 15 giây không đạt được; đây là thêm một lý do cho FSKit ở giai đoạn 5.
+Measured on 14 November 2026 (details in `spikes.md`): extension memory 16–17 MB, app 40–55 MB; app CPU 0.96% when idle with 3 drives of 2 phones; transfer speed meets the target on the emulator and on a Pixel over Wi-Fi. **Listing through Finder misses the target**: a 1,000-file folder takes 30 seconds the first time it opens, although the extension returns each 500-entry page in under 0.25 seconds. The time is fileproviderd creating a placeholder file per entry, about 30 ms each on the test Mac. With replicated File Provider the 1.5 and 15 second targets cannot be met.
 
-## 10. Kiểm thử
+## 10. Testing
 
-- **Unit test:** mã hóa và giải mã gói MTP, ADB, sync; ký AUTH; chuẩn hóa tên; thoát đường dẫn cho shell (gồm các tên tệp độc hại); ItemStore đổi tên và di chuyển giữ identifier.
-- **Test tích hợp với transport giả:** một `DeviceTransport` trong bộ nhớ, chạy toàn bộ luồng File Provider (liệt kê, tải, sửa, mất kết nối giữa chừng, xung đột).
-- **ADB với Android Emulator** qua TCP, chạy được trên CI macOS: push, pull, tệp 5 GB, 10.000 tệp, tên tiếng Việt.
-- **Thiết bị thật** (MTP và ADB qua USB không giả lập được): ma trận tối thiểu Pixel (Android 16), Samsung (One UI, Android 14 trở lên), Xiaomi, một máy Android 10, một Kindle. Mỗi bản phát hành chạy bảng FR-01 → FR-20 bằng tay trên ma trận này.
+- **Unit tests:** encoding and decoding of MTP, ADB and sync packets; AUTH signing; name normalization; shell quoting (including malicious file names); ItemStore renames and moves keeping identifiers.
+- **Integration tests with a fake transport:** an in-memory `DeviceTransport` driving the whole File Provider flow (listing, download, edit, connection lost mid-way, conflicts).
+- **ADB with the Android Emulator** over TCP, runnable on macOS CI: push, pull, 5 GB file, 10,000 files, Vietnamese names.
+- **Real devices** (MTP and ADB over USB cannot be emulated): at minimum a Pixel (Android 16), a Samsung (One UI, Android 14 or later), a Xiaomi, an Android 10 phone and a Kindle. Every release runs FR-01 → FR-20 by hand on this matrix.
 - **macOS:** 13, 15, 26.
 
-## 11. Lộ trình
+## 11. Roadmap
 
-Mỗi giai đoạn xong khi tiêu chí ở cột cuối đạt.
+Each phase is done when the criteria in the last column are met.
 
-| Giai đoạn | Nội dung | Xong khi |
+| Phase | Content | Done when |
 |---|---|---|
-| 0. Thử nghiệm | (a) mở giao diện MTP bằng `IOUSBHost` trên macOS 26 khi `ptpcamerad` chạy; (b) bắt tay ADB qua USB tới `sync:` `LIST`; (c) File Provider replicated với transport giả hiện trong Finder; (d) FSKit có gắn được hệ thống tệp không dựa trên thiết bị khối không | Có câu trả lời có/không cho cả bốn, ghi vào `docs/spikes.md`. (a) thất bại thì chuyển sang `libmtp` |
-| 1. MVP ADB | ADB qua USB, File Provider đọc ghi đủ, menu thanh trên cùng, tên Unicode, tệp > 4 GB | FR-01, 03 → 10, 19 đạt trên Pixel và Samsung |
-| 2. MTP | MtpTransport, xử lý thiết bị bị chiếm, sự kiện MTP | FR-02, 11, 16 đạt; thư mục 10.000 tệp qua MTP hiện đủ |
-| 3. Wi-Fi | `tcpip` cho Android ≤ 10, ghép đôi SPAKE2, QR, tự kết nối lại | FR-12 → 15 đạt |
-| 4. Hoàn thiện | Nhật ký truyền tệp, cài đặt, hướng dẫn có hình, notarize, Sparkle | FR-17, 18, 20 đạt; bản notarized cài trên một máy sạch chạy được |
-| 5. Tùy chọn | FSKit (nếu thử nghiệm 0d đạt), App Intents cho Shortcuts, Mac App Store, gói trả phí | Theo quyết định lúc đó |
+| 0. Spikes | (a) open the MTP interface with `IOUSBHost` on macOS 26 while `ptpcamerad` runs; (b) ADB handshake over USB up to `sync:` `LIST`; (c) replicated File Provider with a fake transport visible in Finder; (d) can FSKit mount a file system not backed by a block device | A yes/no answer for all four in `docs/spikes.md`. If (a) fails, switch to `libmtp` |
+| 1. ADB MVP | ADB over USB, File Provider read/write, menu bar, Unicode names, files > 4 GB | FR-01, 03 → 10, 19 pass on a Pixel and a Samsung |
+| 2. MTP | MtpTransport, busy-device handling, MTP events | FR-02, 11, 16 pass; a 10,000-file folder lists completely over MTP |
+| 3. Wi-Fi | `tcpip` for Android ≤ 10, SPAKE2 pairing, QR, reconnect | FR-12 → 15 pass |
+| 4. Finishing | Transfer log, settings, illustrated guidance, notarization | FR-17, 18, 20 pass; a notarized build runs on a clean Mac |
+| 5. Optional | App Intents for Shortcuts, Mac App Store, paid tier | As decided then |
 
-## 12. Rủi ro
+## 12. Risks
 
-| Rủi ro | Ảnh hưởng | Cách giảm |
+| Risk | Impact | Mitigation |
 |---|---|---|
-| `ptpcamerad` chiếm giao diện MTP và tự chiếm lại sau khi bị dừng | MTP không dùng được trên một số máy | Thử nghiệm 0a; ADB là đường chính, MTP là đường phụ |
-| Hãng điện thoại sửa MTP khác chuẩn (thiếu `GetObjectPropList`, thiếu lệnh mở rộng Android) | Chậm hoặc thiếu thao tác | Kiểm tra `DeviceInfo` và có đường rơi về cho mọi lệnh mở rộng |
-| Ghép đôi Wi-Fi (SPAKE2 + TLS) khó làm đúng | Giai đoạn 3 kéo dài | Đối chiếu với mã AOSP `pairing_auth` và `pairing_connection`, và bản TypeScript của Tango (ya-webadb) |
-| File Provider tải cả tệp mới mở được | Xem video lớn chậm | Ghi rõ trong hướng dẫn; FSKit ở giai đoạn 5 |
-| Android chặn `Android/data` và `Android/obb` với shell ADB ở bản mới | Một số thư mục hiện rỗng | Hiện thư mục với chú thích "Android không cho phép truy cập", không báo lỗi |
-| Lỗi đồng bộ làm mất dữ liệu trên điện thoại | Nghiêm trọng | Xóa và ghi đè chỉ chạy khi version khớp; xung đột thì giữ cả hai bản; test xung đột trong bộ test tích hợp |
+| `ptpcamerad` holds the MTP interface and grabs it again after being stopped | MTP unusable on some Macs | Spike 0a; ADB is the main route, MTP the secondary one |
+| Vendors implement MTP off-spec (no `GetObjectPropList`, no Android extension operations) | Slow or missing operations | Check `DeviceInfo` and have a fallback for every extension operation |
+| Wi-Fi pairing (SPAKE2 + TLS) is hard to get right | Phase 3 takes longer | Compare with the AOSP code `pairing_auth` and `pairing_connection`, and the TypeScript of Tango (ya-webadb) |
+| File Provider downloads the whole file before opening it | Large videos are slow to open | Say so in the docs |
+| Newer Android blocks `Android/data` and `Android/obb` for the ADB shell | Some folders show empty | Show the folder with a note "Android does not allow access", not an error |
+| A sync bug loses data on the phone | Severe | Delete and overwrite only when versions match; keep both copies on conflict; conflict tests in the integration suite |
 
-## 13. Quyết định đã chốt
+## 13. Decisions
 
-Người dùng đồng ý toàn bộ đề xuất ngày 13/11/2026. Kế hoạch thực hiện chi tiết nằm ở [`plan.md`](plan.md).
+The user accepted all recommendations on 13 November 2026, and made later decisions as noted. The implementation plan is in [`plan.md`](plan.md).
 
-| # | Quyết định | Đã chốt |
+| # | Decision | Decided |
 |---|---|---|
-| 1 | Cách đưa tệp vào Finder ở bản đầu | Chỉ File Provider (replicated). FSKit để giai đoạn 5, chỉ làm nếu thử nghiệm 0d đạt. Không làm macFUSE, không làm ổ mạng |
-| 2 | macOS tối thiểu | macOS 13 (Ventura), universal binary |
-| 3 | Thư viện USB | Tự viết trên `IOUSBHost`. `libmtp` + `libusb` chỉ là phương án dự phòng nếu thử nghiệm 0a thất bại |
-| 4 | Client ADB | Tự viết bằng Swift; dùng adb server của người dùng (cổng 5037) nếu đang chạy, không đóng gói binary `adb` |
-| 5 | Gói Free/PRO | Không làm ở bản đầu; chỉ để sẵn một cờ kiểm tra quyền trong code |
-| 6 | Thứ tự | ADB trước (giai đoạn 1), MTP sau (giai đoạn 2) |
-| 7 | Tên | "DroidDrive" là tên tạm; kiểm tra trùng thương hiệu trước khi phát hành công khai |
+| 1 | How files reach Finder | File Provider (replicated) only. FSKit was tried in spike S0-d and not adopted (15 November 2026, see 5.5). No macFUSE, no network drive |
+| 2 | Minimum macOS | macOS 13 (Ventura), universal binary |
+| 3 | USB library | Own code on `IOUSBHost`. `libmtp` + `libusb` only as a fallback if spike 0a fails |
+| 4 | ADB client | Own Swift code; use the user's adb server (port 5037) when it runs; never bundle the `adb` binary |
+| 5 | Free/PRO tiers | Not in the first release; only a licence-check flag in the code |
+| 6 | Order | ADB first (phase 1), MTP second (phase 2) |
+| 7 | Name | "DroidDrive" is a working name; check for trademark conflicts before a public release |
+| 8 | UI language | English only (14 November 2026) |
+| 9 | Audience | Personal use first (15 November 2026); distribution-only work is low priority |
 
-## 14. Nguồn
+## 14. Sources
 
-MacDroid (đọc ngày 13/11/2026):
+MacDroid (read on 13 November 2026):
 
-- [Trang chủ](https://www.macdroid.app/), [Mua](https://www.macdroid.app/purchase/), [FAQ](https://www.macdroid.app/faq/), [Thông tin chung](https://www.macdroid.app/faq/macdroid-general-info/)
-- [Các kiểu gắn ổ](https://www.macdroid.app/faq/types-of-drive-mouting-used-in-macdroid/), [Cài đặt](https://www.macdroid.app/faq/macdroid-preferences/), [Tùy chọn thiết bị](https://www.macdroid.app/faq/device-options/), [Biểu tượng trạng thái](https://www.macdroid.app/faq/what-do-the-icons-on-my-files-mean/)
-- [Kết nối MTP](https://www.macdroid.app/faq/connect-and-mount-android-device-using-mtp/), [Kết nối ADB](https://www.macdroid.app/faq/connect-and-mount-android-device-using-adb/), [Kết nối Wi-Fi](https://www.macdroid.app/faq/how-to-connect-android-device-using-wi-fi/)
-- [Thư mục nhiều tệp](https://www.macdroid.app/faq/cannot-access-a-folder-with-a-large-quantity-of-files/), [Thiết bị bị ứng dụng khác dùng](https://www.macdroid.app/faq/cannot-connect-a-phone-while-it-is-being-used-by-another-app/)
-- [Lịch sử phiên bản](https://help.electronic.us/support/solutions/articles/44001895298-macdroid-version-history)
+- [Home](https://www.macdroid.app/), [Purchase](https://www.macdroid.app/purchase/), [FAQ](https://www.macdroid.app/faq/), [General info](https://www.macdroid.app/faq/macdroid-general-info/)
+- [Mount types](https://www.macdroid.app/faq/types-of-drive-mouting-used-in-macdroid/), [Preferences](https://www.macdroid.app/faq/macdroid-preferences/), [Device options](https://www.macdroid.app/faq/device-options/), [Status icons](https://www.macdroid.app/faq/what-do-the-icons-on-my-files-mean/)
+- [MTP connection](https://www.macdroid.app/faq/connect-and-mount-android-device-using-mtp/), [ADB connection](https://www.macdroid.app/faq/connect-and-mount-android-device-using-adb/), [Wi-Fi connection](https://www.macdroid.app/faq/how-to-connect-android-device-using-wi-fi/)
+- [Folders with many files](https://www.macdroid.app/faq/cannot-access-a-folder-with-a-large-quantity-of-files/), [Device used by another app](https://www.macdroid.app/faq/cannot-connect-a-phone-while-it-is-being-used-by-another-app/)
+- [Version history](https://help.electronic.us/support/solutions/articles/44001895298-macdroid-version-history)
 
-Kỹ thuật:
+Technical:
 
-- [FSKit](https://developer.apple.com/documentation/fskit), [FSUnaryFileSystem](https://developer.apple.com/documentation/fskit/fsunaryfilesystem), [FSKitSample](https://github.com/drunlin/FSKitSample)
-- [Android Debug Bridge](https://developer.android.com/tools/adb); giao thức: AOSP `packages/modules/adb` (`protocol.txt`, `SYNC.TXT`, `pairing_auth/`, `pairing_connection/`)
-- [Commit thêm TLS và mDNS cho adb Wi-Fi](https://gerrit.omnirom.org/plugins/gitiles/android_system_core/+/d85f5c013089d569a6274ae5ab01cfaa613fc872%5E%21), [wadb](https://github.com/lindevhard/wadb), [adb-qr](https://pypi.org/project/adb-qr/)
-- `ptpcamerad` chiếm thiết bị: [Apple Community](https://discussions.apple.com/thread/254788819), [MTP trong Rust trên macOS](https://dev.to/hiyoyok/building-an-android-file-transfer-alternative-for-macos-why-it-had-to-be-rust-1m0h), [droidmount](https://awesome.ecosyste.ms/projects/github.com%2Frahuletto%2Fdroidmount)
-- Mã lệnh MTP mở rộng của Android: AOSP `frameworks/av/media/mtp/mtp.h`
+- [FSKit](https://developer.apple.com/documentation/fskit), [FSUnaryFileSystem](https://developer.apple.com/documentation/fskit/fsunaryfilesystem), [FSKitSample](https://github.com/drunlin/FSKitSample), [FSKit enablement bug on macOS 26](https://github.com/MacFabric/iSCSI-NVMe-TCP/blob/main/docs/feedback-fskit-enablement-26x.md)
+- [Android Debug Bridge](https://developer.android.com/tools/adb); protocol: AOSP `packages/modules/adb` (`protocol.txt`, `SYNC.TXT`, `pairing_auth/`, `pairing_connection/`)
+- [Commit adding TLS and mDNS to adb Wi-Fi](https://gerrit.omnirom.org/plugins/gitiles/android_system_core/+/d85f5c013089d569a6274ae5ab01cfaa613fc872%5E%21), [wadb](https://github.com/lindevhard/wadb), [adb-qr](https://pypi.org/project/adb-qr/)
+- `ptpcamerad` holding devices: [Apple Community](https://discussions.apple.com/thread/254788819), [MTP in Rust on macOS](https://dev.to/hiyoyok/building-an-android-file-transfer-alternative-for-macos-why-it-had-to-be-rust-1m0h), [droidmount](https://awesome.ecosyste.ms/projects/github.com%2Frahuletto%2Fdroidmount)
+- Android's MTP extension operation codes: AOSP `frameworks/av/media/mtp/mtp.h`

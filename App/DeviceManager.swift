@@ -281,7 +281,7 @@ final class DeviceManager: ObservableObject {
     }
 
     /// FR-19: unmount; asks first when transfers are running. Edits not yet sent to the
-    /// phone stay on the Mac (spec §5.5 "Unmount"). `.preserveDirtyUserData`, not
+    /// phone stay on the Mac (spec §5.5 "Unmounting and losing the connection"). `.preserveDirtyUserData`, not
     /// `.preserveDownloadedUserData`: the latter leaves a copy of every downloaded file
     /// in a "<drive> (date)" folder, which a sandboxed app is not allowed to delete.
     func unmount(_ row: DeviceRow) async {

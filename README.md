@@ -1,62 +1,120 @@
 # DroidDrive
 
-DroidDrive là một ứng dụng macOS gắn điện thoại Android vào Finder thành một ổ đĩa, để duyệt, mở, sửa và chép tệp như với ổ USB. Nó dùng File Provider, cơ chế mà iCloud Drive và Google Drive dùng, nên không cần macFUSE hay kernel extension. Đặc tả nằm ở [`docs/spec.md`](docs/spec.md), kế hoạch và tiến độ ở [`docs/plan.md`](docs/plan.md), kết quả các bài thử ở [`docs/spikes.md`](docs/spikes.md).
+DroidDrive is a macOS app that mounts an Android phone in Finder as a drive, so you can browse, open, edit and copy files the way you would on a USB stick. macOS cannot read Android phones on its own (Android speaks MTP, the Mac only understands the cameras' PTP), and Google's Android File Transfer is no longer maintained. DroidDrive uses File Provider, the mechanism behind iCloud Drive and Google Drive, so it needs no macFUSE and no kernel extension.
 
-Trạng thái (tối 14/11/2026): đã có code cho bốn giai đoạn đầu của kế hoạch. Đã thử với Android Emulator và với một Pixel thật qua Wi-Fi (adb server). ADB qua USB không cần adb server, và MTP, mới chạy với thiết bị giả; ghép đôi Wi-Fi của chính DroidDrive đã thử với emulator. Giao diện chỉ có tiếng Anh. Chi tiết ở mục 5 của kế hoạch.
+It connects over Wi-Fi (Android 11+ wireless debugging, paired by QR code or 6-digit code), over USB with ADB, or over USB with MTP. Each storage of the phone (internal storage, SD card) becomes its own drive under Locations in the Finder sidebar.
 
-## Build và chạy thử
+<p align="center">
+  <img src="docs/images/menu.png" width="326" alt="The DroidDrive menu in the menu bar, with a phone mounted">
+</p>
 
-Cần Xcode 26 trở lên và [XcodeGen](https://github.com/yonaskolb/XcodeGen). Project Xcode được sinh ra từ `project.yml`, không commit vào repo. Team ký nằm trong `Config/Signing.xcconfig`; muốn dùng team khác thì tạo `Config/Signing.local.xcconfig` (đã bỏ qua trong git).
+<p align="center">
+  <img src="docs/images/finder-drive.png" width="700" alt="The phone's internal storage as a drive in Finder">
+</p>
+
+<p align="center">
+  <img src="docs/images/finder-files.png" width="700" alt="Files on the phone in Finder's list view, including a Vietnamese file name">
+</p>
+
+<p align="center">
+  <img src="docs/images/devices-window.png" width="560" alt="The Devices window: connection, serial, storages with capacity, refresh interval">
+  <img src="docs/images/connect-wifi.png" width="392" alt="Connect via Wi-Fi: pair by QR code, pairing code, manual address, or Android 10 and earlier">
+</p>
+
+Screenshots taken with the Android Emulator.
+
+## Status
+
+A personal project, working day to day with a Pixel 4 XL over Wi-Fi. What has been tested where:
+
+| Feature | State |
+|---|---|
+| Wi-Fi, paired in DroidDrive (QR code) | Works on a real phone (Android 13) |
+| ADB through the user's adb server (USB or `adb connect`) | Works on the emulator and a real phone |
+| Finder: browse, open, create, rename, move, edit, delete, Unicode names, conflicts, offline edits | Works on the emulator and a real phone |
+| ADB over USB without an adb server | Written and tested against fake USB pipes; not yet run on a real phone |
+| MTP over USB | Written and tested against a fake MTP phone; not yet run on a real phone |
+
+Large folders open slowly the first time (about 30 ms per entry, spent in macOS's fileproviderd). The details, measurements and known limits are in [`docs/spikes.md`](docs/spikes.md); the design is in [`docs/spec.md`](docs/spec.md) and the task list in [`docs/plan.md`](docs/plan.md).
+
+## Requirements
+
+- macOS 13 or later (developed and tested on macOS 26).
+- Xcode 26 or later and [XcodeGen](https://github.com/yonaskolb/XcodeGen) to build.
+- An Android phone with Developer options turned on: Wireless debugging (Android 11+) or USB debugging, or "File transfer" mode for MTP.
+
+## Build and run
+
+The Xcode project is generated from `project.yml` and not committed. No signing team is committed either: put yours in `Config/Signing.local.xcconfig` (git-ignored), because the app and its File Provider extension share data through the app group `<team id>.com.droiddrive`. Your team id is in Xcode → Settings → Accounts, or in the `OU` field of `security find-identity -v -p codesigning`.
 
 ```sh
+echo 'DEVELOPMENT_TEAM = ABCDE12345' > Config/Signing.local.xcconfig   # your team id
 xcodegen generate
-xcodebuild -project DroidDrive.xcodeproj -scheme DroidDrive -derivedDataPath build/app \
+xcodebuild -project DroidDrive.xcodeproj -scheme DroidDrive -configuration Release \
+  -derivedDataPath build/app \
   CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY="Apple Development" PROVISIONING_PROFILE_SPECIFIER= build
-open build/app/Build/Products/Debug/DroidDrive.app
+cp -R build/app/Build/Products/Release/DroidDrive.app /Applications/
+open /Applications/DroidDrive.app
 ```
 
-App nằm trên thanh menu, có các cửa sổ Devices, Connect via Wi-Fi, Transfer Log và Settings. Nó tìm điện thoại qua adb server (nếu đang chạy), qua USB (ADB hoặc MTP), và qua Wi-Fi với máy đã ghép đôi trong cửa sổ Connect via Wi-Fi; extension File Provider gọi app qua XPC, nên app phải chạy thì ổ mới đọc ghi được.
+The first time a drive is mounted, macOS keeps it switched off. Turn DroidDrive on under System Settings → General → Login Items & Extensions → File Providers; the DroidDrive menu has a button that opens that page.
 
-Lần đầu gắn, macOS để ổ ở trạng thái tắt. Bật DroidDrive trong Cài đặt hệ thống → Chung → Mục đăng nhập & Tiện ích mở rộng → File Provider; menu của DroidDrive có nút mở đúng trang này.
+DroidDrive lives in the menu bar and has Devices, Connect via Wi-Fi, Transfer Log and Settings windows. It finds phones through the adb server (when one is running), over USB (ADB or MTP), and over Wi-Fi for phones paired in Connect via Wi-Fi. The File Provider extension reaches the phone through the app over XPC, so the app must be running for the drives to read and write; "Open at login" is on by default.
 
-## Dùng hằng ngày
+To update the installed copy after changing the code: build again, quit DroidDrive, copy the new `DroidDrive.app` over the one in `/Applications`, and open it.
 
-Bản dùng thật nằm ở `/Applications/DroidDrive.app` và tự chạy khi đăng nhập (Settings → Open at login); biểu tượng điện thoại trên thanh menu là nó. Mỗi lần cần lấy tệp:
+## Everyday use
 
-1. Trên điện thoại, bật Tùy chọn nhà phát triển → **Gỡ lỗi không dây** (Android tự tắt nó khi khởi động lại hoặc đổi mạng Wi-Fi). Điện thoại và Mac cùng một mạng Wi-Fi.
-2. Vài giây sau, menu DroidDrive hiện điện thoại "· Mounted" và ổ hiện trong thanh bên Finder (mục Locations). Không phải ghép đôi lại.
-3. Dùng ổ như một thư mục thường. Xong thì cứ tắt Gỡ lỗi không dây; tệp đã mở vẫn còn trên Mac, thay đổi chưa gửi sẽ gửi ở lần nối sau.
+1. On the phone, turn on Developer options → **Wireless debugging**. Android turns it off when the phone restarts or changes Wi-Fi network. The phone and the Mac must be on the same Wi-Fi network.
+2. A few seconds later the DroidDrive menu shows the phone as "Mounted" and the drive appears in the Finder sidebar under Locations. No need to pair again.
+3. Use the drive like any folder. When you are done, just turn Wireless debugging off; files you opened stay on the Mac, and changes not yet sent go out the next time the phone connects.
 
-Cắm cáp USB (chế độ "Truyền tệp", có Gỡ lỗi USB) cũng được, chưa thử với máy thật.
+## Connecting over Wi-Fi the first time
 
-Cập nhật bản dùng thật sau khi sửa code: build cấu hình Release như mục trên (thay `build` bằng `-configuration Release build`), thoát DroidDrive, chép `build/app/Build/Products/Release/DroidDrive.app` đè lên `/Applications/DroidDrive.app`, rồi mở lại.
+There are two ways.
 
-## Nối điện thoại qua Wi-Fi
-
-Có hai cách. Cách của DroidDrive: menu → Connect via Wi-Fi…, rồi quét mã QR hoặc nhập mã 6 số; DroidDrive tự ghép đôi, tự kết nối và tự nối lại về sau. Cách qua adb: điện thoại nào adb server thấy thì DroidDrive cũng thấy. Với Android 11 trở lên: bật Gỡ lỗi không dây trong Tùy chọn nhà phát triển, chọn "Ghép nối thiết bị bằng mã ghép nối", rồi trên Mac chạy hai lệnh dưới đây (`adb mdns services` cho biết địa chỉ và cổng điện thoại đang quảng bá). Cổng của `pair` và của `connect` khác nhau, đều đọc trên màn hình điện thoại. Ổ đặt tên theo serial của điện thoại, nên đổi cổng hay chuyển giữa USB và Wi-Fi vẫn là cùng một ổ.
+- **In DroidDrive:** menu → Connect via Wi-Fi…, then scan the QR code (on the phone: Wireless debugging → Pair device with QR code) or enter the 6-digit pairing code. DroidDrive pairs, connects, and reconnects by itself later.
+- **With adb:** any phone the adb server sees, DroidDrive sees too. On the phone choose Wireless debugging → Pair device with pairing code, then run the two commands below on the Mac. The `pair` and `connect` ports differ; both are shown on the phone (`adb mdns services` also lists them).
 
 ```sh
-adb pair 192.168.1.23:37123      # nhập mã 6 số
+adb pair 192.168.1.23:37123        # enter the 6-digit code
 adb connect 192.168.1.23:41234
 ```
 
-## Test
+Drives are named after the phone's own serial number, so changing ports or switching between USB and Wi-Fi keeps the same drive.
 
-Unit test không cần thiết bị. Test tích hợp chỉ chạy khi có biến môi trường trỏ tới một thiết bị: emulator hoặc điện thoại thật đã cho phép ADB.
+## Tests
+
+Unit tests need no device. Integration tests run only when an environment variable points at a device: the emulator, or a real phone that allows ADB.
 
 ```sh
 cd Packages
-swift test                                              # unit test
-DROIDDRIVE_ADB_SERIAL=emulator-5554 swift test          # thêm test tích hợp qua adb server
+swift test                                              # unit tests
+DROIDDRIVE_ADB_SERIAL=emulator-5554 swift test          # plus integration tests through the adb server
 DROIDDRIVE_ADB_SERIAL=<serial> DROIDDRIVE_TEST_ROOT=/storage/emulated/0/DroidDriveTest \
-  swift test --filter IntegrationTests                   # trên điện thoại thật, chỉ ghi trong thư mục đó
+  swift test --filter IntegrationTests                   # on a real phone, writing only inside that folder
 DROIDDRIVE_ADB_DIRECT=127.0.0.1:5555 swift test \
-  --filter IntegrationTests                              # nối thẳng adbd (tắt adb server trước)
+  --filter IntegrationTests                              # straight to adbd (stop the adb server first)
 ```
 
-Ba công cụ dòng lệnh trong `Packages/`, không đóng gói vào app: `droiddrive-cli` gọi thẳng client ADB (thử nhanh, đo tốc độ so với `adb`), `droiddrive-usb` thử USB và MTP (bài S0-a), `droiddrive-wifi` thử ghép đôi và kết nối Wi-Fi (`discover`, `pair`, `qr`, `connect`). Ví dụ:
+Three command-line tools live in `Packages/` and are not shipped in the app: `droiddrive-cli` drives the ADB client directly (quick checks, speed comparisons with `adb`), `droiddrive-usb` probes USB and MTP, and `droiddrive-wifi` tries Wi-Fi pairing and connections (`discover`, `pair`, `qr`, `connect`). For example:
 
 ```sh
 swift run -c release droiddrive-cli storages
 swift run -c release droiddrive-cli push ./big.bin /storage/emulated/0/Download/big.bin
 ```
+
+## Repository layout
+
+| Path | What it is |
+|---|---|
+| `App/` | Menu-bar app (SwiftUI): device sources, windows, XPC link to the extension |
+| `FileProvider/` | The File Provider (replicated) extension |
+| `Packages/` | Swift package with the layers: `DroidCore`, `AdbKit`, `UsbKit`, `MtpKit`, `AdbPairing` (+ `CSpake2` from BoringSSL), `ItemStore`, `DeviceService`, and the CLI tools |
+| `docs/` | Specification, plan, spike results, screenshots |
+| `spikes/fskit/` | A throwaway FSKit module from spike S0-d (not used by the app) |
+| `scripts/release.sh` | Archive, Developer ID signing, notarization and DMG |
+
+## License
+
+DroidDrive is released under the [MIT License](LICENSE). `Packages/Sources/CSpake2/` contains code from BoringSSL and fiat-crypto under their own licenses, kept next to that code.

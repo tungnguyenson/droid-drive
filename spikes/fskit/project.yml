@@ -4,9 +4,9 @@ options:
   bundleIdPrefix: dev.droiddrive.spike
   deploymentTarget:
     macOS: "26.0"
+# Pass your team on the command line: xcodebuild … DEVELOPMENT_TEAM=<team id>
 settings:
   base:
-    DEVELOPMENT_TEAM: 43FEB573SC
     SWIFT_VERSION: "5.0"
     ENABLE_HARDENED_RUNTIME: YES
 targets:

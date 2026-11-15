@@ -1,194 +1,196 @@
-# Kế hoạch thực hiện DroidDrive
+# DroidDrive implementation plan
 
-Tài liệu này là kế hoạch làm DroidDrive, ứng dụng macOS gắn điện thoại Android vào Finder theo đặc tả [`spec.md`](spec.md). Đặc tả trả lời câu hỏi "làm cái gì"; tài liệu này trả lời "làm theo thứ tự nào, mỗi bước gồm việc gì, xong khi nào, và trước khi bắt đầu cần chuẩn bị gì".
+This is the plan for building DroidDrive, the macOS app that mounts Android phones in Finder described in [`spec.md`](spec.md). The spec answers "what to build"; this plan answers "in which order, what each step contains, when it is done, and what to prepare first".
 
-Trạng thái tối 14/11/2026: đã có code cho cả bốn giai đoạn đầu. Phần chạy được không cần điện thoại cắm cáp đã thử với Android Emulator và với một Pixel 4 XL thật (Android 13) nối qua Wi-Fi bằng adb server. USB và MTP mới chỉ chạy với điện thoại giả trong bộ nhớ, vì chưa cắm máy thật lần nào; ghép đôi Wi-Fi của chính DroidDrive đã thử với emulator và với `adb pair` thật. Kết quả các bài thử ở [`spikes.md`](spikes.md).
+Status on the evening of 14 November 2026: code exists for the first four phases. Everything that runs without a phone on a cable has been tested with the Android Emulator and with a real Pixel 4 XL (Android 13) over Wi-Fi. USB and MTP have only run against an in-memory fake phone, since no real phone has been plugged in yet; DroidDrive's own Wi-Fi pairing has been tested with the emulator, with the real `adb pair`, and with the Pixel (QR code). Spike results are in [`spikes.md`](spikes.md).
 
-Cột **Xong** trong các bảng việc: ✅ đạt tiêu chí "Xong khi" (trên emulator nếu tiêu chí không đòi máy thật), ◐ làm một phần, để trống là chưa làm. Phần còn thiếu của từng việc ghi ở mục 5.
+The **Done** column in the task tables: ✅ means the "Done when" criterion is met (on the emulator when the criterion does not require a real phone), ◐ means partly done, blank means not started. What each task still lacks is listed in section 5.
 
-Cách chia việc: đi từ chỗ rủi ro cao nhất. Giai đoạn 0 là bốn bài thử nhỏ, mỗi bài trả lời một câu hỏi có/không mà nếu trả lời sai thì phải đổi thiết kế. Sau đó mỗi giai đoạn ra một bản chạy được trên máy thật, xong khi các yêu cầu chức năng (mã `FR-xx` ở mục 4 của đặc tả) của giai đoạn đó đạt.
+How the work is split: highest risk first. Phase 0 is four small spikes, each answering a yes/no question that would change the design if the answer were wrong. After that, each phase produces a build that works on real hardware and is done when its functional requirements (the `FR-xx` ids in section 4 of the spec) pass.
 
-## 1. Cần chuẩn bị trước khi bắt đầu
+## 1. What to prepare before starting
 
-1. **Tài khoản Apple Developer (trả phí, 99 USD/năm).**
-   Đề xuất: dùng tài khoản đang có nếu có, tạo Team ID riêng không cần. Lý do: App Group, Developer ID và notarize đều cần tài khoản trả phí; File Provider extension chạy được khi ký bằng tài khoản miễn phí trong lúc phát triển, nhưng không phân phối được.
-   Nếu không: giai đoạn 0 và 1 vẫn làm được với chữ ký phát triển, chỉ chặn ở giai đoạn 4 (notarize).
-2. **Thiết bị test.**
-   Đề xuất: tối thiểu một Pixel (Android 15 hoặc 16) và một Samsung (Android 14 trở lên) trước giai đoạn 1; thêm một máy Android 10 trở xuống trước giai đoạn 3 (cho `tcpip`); một Kindle hoặc GoPro là tùy chọn ở giai đoạn 2.
-   Nếu chỉ có một máy: làm được, nhưng lỗi riêng của One UI (Samsung) sẽ chỉ lộ ra khi người khác dùng.
-3. **Máy Mac test.**
-   Đề xuất: máy chính chạy macOS 26; một máy ảo macOS 13 (UTM hoặc Parallels trên Apple silicon) để kiểm bản tối thiểu. Lưu ý: máy ảo không chuyển tiếp USB ổn định, nên trên máy ảo chỉ test ADB qua Wi-Fi.
-4. **Công cụ:** Xcode bản mới nhất, Android Studio (để có emulator và `adb` làm mốc đo tốc độ), OpenMTP (mốc đo tốc độ MTP).
+1. **A paid Apple Developer account (USD 99/year).**
+   Recommendation: use an existing one; no separate team is needed. App groups, Developer ID and notarization all need a paid account; the File Provider extension runs with development signing, but cannot be distributed that way.
+   Otherwise: phases 0 and 1 still work with development signing; only phase 4 (notarization) is blocked.
+2. **Test devices.**
+   Recommendation: at least one Pixel (Android 15 or 16) and one Samsung (Android 14 or later) before phase 1; an Android 10 or earlier phone before phase 3 (for `tcpip`); a Kindle or GoPro is optional in phase 2.
+   With a single phone: workable, but One UI (Samsung) specific bugs will only show up when someone else uses it.
+3. **Test Macs.**
+   Recommendation: the main Mac on macOS 26; a macOS 13 virtual machine (UTM or Parallels on Apple silicon) to check the minimum version. Virtual machines do not pass USB through reliably, so test only ADB over Wi-Fi there.
+4. **Tools:** the latest Xcode, Android Studio (for the emulator and `adb` as the speed baseline), OpenMTP (the MTP speed baseline).
 
-## 2. Cấu trúc repo dự kiến
+## 2. Repository layout
 
-Code chia thành Swift package theo lớp, để test được từng lớp mà không cần app hay extension. Ứng dụng và extension chỉ là lớp vỏ mỏng gọi vào các package.
+Code is split into Swift packages by layer, so each layer can be tested without the app or the extension. The app and the extension are thin shells that call into the packages.
 
-Lúc làm, các lớp thành **một** Swift package `Packages/` với mỗi lớp một target (thay vì mỗi lớp một package), để một lệnh `swift test` chạy test của mọi lớp. Project Xcode sinh từ `project.yml` bằng XcodeGen, không commit.
+In practice the layers became **one** Swift package, `Packages/`, with one target per layer (instead of one package per layer), so a single `swift test` runs every layer's tests. The Xcode project is generated from `project.yml` with XcodeGen and is not committed.
 
 ```
 android-mac-transfer/
 ├── docs/                    spec.md, plan.md, spikes.md
 ├── project.yml              XcodeGen → DroidDrive.xcodeproj (git-ignored)
-├── Config/Signing.xcconfig  team và tiền tố bundle id; ghi đè ở Signing.local.xcconfig
-├── App/                     target ứng dụng thanh menu (SwiftUI)
-├── FileProvider/            target NSFileProviderReplicatedExtension
-├── Shared/                  mã dùng chung app + extension (app group)
+├── Config/Signing.xcconfig  team and bundle id prefix; override in Signing.local.xcconfig
+├── App/                     menu-bar app target (SwiftUI)
+├── FileProvider/            NSFileProviderReplicatedExtension target
+├── Shared/                  code shared by app and extension (app group)
 ├── Packages/
 │   ├── Package.swift
 │   ├── Sources/
-│   │   ├── DroidCore/       DeviceTransport, RemoteEntry, lỗi chung, chuẩn hóa tên, DomainIdentifier, FakeTransport
-│   │   ├── ItemStore/       SQLite: identifier ↔ đường dẫn, version, generation + tombstone
-│   │   ├── AdbKit/          gói tin ADB, AUTH, sync, shell, kết nối TCP / qua adb server, AdbTransport
-│   │   ├── DroidDriveCLI/   droiddrive-cli: chạy thử và đo tốc độ, không đóng gói vào app
-│   │   ├── UsbKit/          (chưa có) IOUSBHost
-│   │   ├── AdbPairing/      (chưa có) SPAKE2 + TLS, mDNS, QR
-│   │   ├── MtpKit/          (chưa có) PTP/MTP
-│   │   └── DeviceService/   (chưa có) DeviceSession, TransferQueue, ActivityLog, XPC
-│   └── Tests/               unit test từng lớp, IntegrationTests (cần thiết bị), fixtures
-└── Tests/fixtures/          malicious-names.bin (tên tệp độc hại, phân cách NUL)
+│   │   ├── DroidCore/       DeviceTransport, RemoteEntry, errors, name normalization, DomainIdentifier, FakeTransport
+│   │   ├── ItemStore/       SQLite: identifier ↔ path, versions, generations + tombstones
+│   │   ├── AdbKit/          ADB packets, AUTH, sync, shell, TCP / adb server / TLS links, AdbTransport, key store
+│   │   ├── UsbKit/          IOUSBHost: device watching, interfaces, pipes, holder detection
+│   │   ├── MtpKit/          PTP/MTP session and MtpTransport
+│   │   ├── AdbPairing/      SPAKE2 + TLS pairing, mDNS, QR, reconnects, the Wi-Fi sheet
+│   │   ├── CSpake2/         SPAKE2 over Curve25519 from BoringSSL
+│   │   ├── DeviceService/   device sources and registry, XPC link, transfer log
+│   │   └── DroidDrive*CLI/  droiddrive-cli, droiddrive-usb, droiddrive-wifi: test and benchmark tools, not shipped in the app
+│   └── Tests/               unit tests per layer, IntegrationTests (need a device), fixtures
+├── spikes/fskit/            throwaway FSKit module from spike S0-d
+└── Tests/fixtures/          malicious-names.bin (malicious file names, NUL-separated)
 ```
 
-## 3. Các giai đoạn
+## 3. Phases
 
-Ước lượng là thô, tính cho một người làm toàn thời gian, chủ yếu để thấy tỉ lệ giữa các giai đoạn. Tổng khoảng 11 đến 13 tuần.
+The estimates are rough, for one person full time, mainly to show the relative size of the phases. About 11 to 13 weeks in total.
 
-| Giai đoạn | Nội dung | Ước lượng | Tiến độ (14/11/2026) |
+| Phase | Content | Estimate | Progress (14–15 November 2026) |
 |---|---|---|---|
-| 0 | Bốn bài thử | 1 tuần | 2/4 ✅, 1 ◐ |
-| 1 | MVP qua ADB + USB | 3 tuần | 6/14 ✅, 8 ◐ |
-| 2 | MTP | 3 tuần | 0/9 ✅, 8 ◐ (chỉ thử với điện thoại giả) |
-| 3 | Wi-Fi | 2–3 tuần | 5/8 ✅, 3 ◐ |
-| 4 | Hoàn thiện và phát hành | 2 tuần | 4/8 ✅, 4 ◐ |
-| 5 | Tùy chọn (FSKit, Shortcuts, App Store) | chưa ước lượng | |
+| 0 | Four spikes | 1 week | 2/4 ✅, 1 ◐ |
+| 1 | MVP over ADB + USB | 3 weeks | 6/14 ✅, 8 ◐ |
+| 2 | MTP | 3 weeks | 0/9 ✅, 8 ◐ (fake phone only) |
+| 3 | Wi-Fi | 2–3 weeks | 5/8 ✅, 3 ◐ |
+| 4 | Finishing and release | 2 weeks | 4/8 ✅, 4 ◐ |
+| 5 | Optional (Shortcuts, App Store) | not estimated | |
 
-### Giai đoạn 0: bốn bài thử
+### Phase 0: four spikes
 
-Mỗi bài là một chương trình nhỏ bỏ đi sau khi xong, chỉ giữ lại kết luận. Kết quả ghi vào `docs/spikes.md`: câu hỏi, cách thử, máy và phiên bản, kết quả, hệ quả cho thiết kế.
+Each spike is a small throwaway program; only its conclusion is kept. Results go in `docs/spikes.md`: the question, how it was tested, machine and versions, the result, and what it means for the design.
 
-| Mã | Xong | Câu hỏi | Cách thử | Nếu "không" |
+| Id | Done | Question | How | If "no" |
 |---|:-:|---|---|---|
-| S0-a |  | Mở được giao diện MTP của điện thoại bằng `IOUSBHost` trên macOS 26 không, khi `ptpcamerad` đang chạy? Dừng `ptpcamerad` thì nó có chiếm lại không? | CLI Swift: tìm giao diện MTP, mở độc quyền, gửi `GetDeviceInfo`, `OpenSession`. Lặp lại sau `killall ptpcamerad`. Thử trên Pixel và Samsung | Thử `libmtp` + `libusb`; nếu cũng không được thì MTP chỉ là "thử nghiệm" trong bản đầu, đặc tả cập nhật mục 5.7 |
-| S0-b | ◐ | Tự viết được bắt tay ADB qua USB tới `sync:` `LIST` không? | CLI Swift: tìm giao diện ADB, `CNXN`, `AUTH` (sinh khóa RSA, ký token), mở `sync:`, liệt kê `/sdcard` | Không có phương án thay thế tốt; đây là bài phải đạt. Nếu kẹt quá 3 ngày, cân nhắc đóng gói `adb` (quyết định 4 phải mở lại) |
-| S0-c | ✅ | File Provider replicated với dữ liệu giả có hiện trong Finder, đọc, ghi, đổi tên, và mất kết nối giả lập có đưa thao tác vào hàng đợi không? | App + extension tối thiểu, transport giả trong bộ nhớ, giao tiếp qua XPC Mach service trong app group | Không có phương án thay thế trong phạm vi đã chốt; ghi rõ giới hạn gặp phải và hỏi lại người dùng |
-| S0-d | ✅ | FSKit trên macOS 26 có gắn được hệ thống tệp không dựa trên thiết bị khối không? | Đọc tài liệu FSKit bản mới nhất, dựng extension `FSUnaryFileSystem` từ FSKitSample, thử gắn với tài nguyên kiểu URL hoặc đường dẫn | Bỏ FSKit khỏi giai đoạn 5, ghi lý do |
+| S0-a |  | Can `IOUSBHost` open a phone's MTP interface on macOS 26 while `ptpcamerad` runs? After stopping `ptpcamerad`, does it grab the device again? | Swift CLI: find the MTP interface, open it exclusively, send `GetDeviceInfo`, `OpenSession`. Repeat after `killall ptpcamerad`. Try on a Pixel and a Samsung | Try `libmtp` + `libusb`; if that fails too, MTP is "experimental" in the first release and spec section 5.7 is updated |
+| S0-b | ◐ | Can we write our own ADB handshake over USB up to `sync:` `LIST`? | Swift CLI: find the ADB interface, `CNXN`, `AUTH` (generate an RSA key, sign the token), open `sync:`, list `/sdcard` | No good alternative; this one must pass. If stuck for more than 3 days, consider bundling `adb` (decision 4 reopens) |
+| S0-c | ✅ | Does a replicated File Provider with fake data show in Finder, read, write and rename, and does a simulated disconnect queue operations? | Minimal app + extension, in-memory fake transport, talking over an app-group XPC Mach service | No alternative within the agreed scope; write down the limits found and ask the user |
+| S0-d | ✅ | Can FSKit on macOS 26 mount a file system not backed by a block device? | Read the latest FSKit docs, build an `FSUnaryFileSystem` extension from FSKitSample, try mounting a URL or path resource | Drop FSKit from phase 5 and record why |
 
-Xong khi: `docs/spikes.md` có kết luận cho cả bốn, và đặc tả được cập nhật nếu kết luận nào làm đổi thiết kế.
+Done when: `docs/spikes.md` has a conclusion for all four, and the spec is updated wherever a conclusion changes the design.
 
-### Giai đoạn 1: MVP qua ADB và USB
+### Phase 1: MVP over ADB and USB
 
-Mục tiêu: cắm điện thoại đã bật Gỡ lỗi USB, điện thoại hiện trong Finder, làm được mọi thao tác tệp.
+Goal: plug in a phone with USB debugging on, the phone shows in Finder, every file operation works.
 
-| Mã | Xong | Việc | Phụ thuộc | Xong khi |
+| Id | Done | Task | Depends on | Done when |
 |---|:-:|---|---|---|
-| P1-01 | ◐ | Tạo Xcode project, hai target, App Group, entitlement (mục 8 của đặc tả), các package rỗng, CI build + test | | CI xanh trên một commit rỗng |
-| P1-02 | ✅ | `DroidCore`: `DeviceTransport`, `RemoteEntry`, enum lỗi, chuẩn hóa NFC, kiểm ký tự cấm, `FakeTransport` | P1-01 | Unit test cho chuẩn hóa và ký tự cấm |
-| P1-03 | ◐ | `UsbKit`: theo dõi cắm rút, mở giao diện, bulk pipe, đọc ghi bất đồng bộ, đọc tiến trình đang chiếm | P1-01 | CLI in ra danh sách thiết bị và giao diện khi cắm rút |
-| P1-04 | ✅ | `AdbKit` gói tin: mã hóa, giải mã, checksum, bộ đọc luồng | P1-02 | Unit test với các gói mẫu lấy từ `adb` thật (bắt bằng Wireshark hoặc log của adb) |
-| P1-05 | ◐ | `AdbKit` xác thực: sinh RSA 2048, lưu Keychain, ký token, định dạng khóa công khai Android | P1-04 | Điện thoại hiện hộp thoại cho phép; lần sau không hỏi lại |
-| P1-06 | ◐ | `AdbKit` sync: `LIS2`/`LIST`, `STA2`/`STAT`, `RCV2`/`RECV`, `SND2`/`SEND` có mtime | P1-05 | Push và pull tệp 6 GB, SHA-256 khớp |
-| P1-07 | ✅ | `AdbKit` shell: `shell,v2` có mã thoát, thoát đường dẫn an toàn, `mkdir`, `rm`, `mv`, `df`, liệt kê `/storage` | P1-05 | Unit test với bộ tên tệp độc hại trong `Tests/fixtures`; không tên nào chạy thành lệnh |
-| P1-08 | ✅ | `AdbKit` qua adb server: phát hiện cổng 5037, `host:transport:<serial>`, rồi dùng chung sync và shell | P1-06 | Mở Android Studio trước, DroidDrive vẫn gắn được điện thoại |
-| P1-09 | ◐ | `AdbTransport`: cài `DeviceTransport` trên `AdbKit`, liệt kê theo lô, 4 luồng song song | P1-06, P1-07 | Test tích hợp với Android Emulator qua TCP chạy trên CI |
-| P1-10 | ✅ | `ItemStore`: schema SQLite, UUID ổn định, đổi tên giữ identifier, version, ghi nhận xung đột | P1-02 | Unit test đổi tên, di chuyển, xung đột |
-| P1-11 | ✅ | `DeviceService`: DeviceManager, DeviceSession, XPC server, truyền file descriptor | P1-09 | Extension giả gọi qua XPC liệt kê được thư mục |
-| P1-12 | ◐ | Extension File Provider: một domain mỗi bộ nhớ, enumerate theo trang, fetch, create, modify, delete, mất kết nối | P1-10, P1-11 | FR-03 đến FR-10 đạt với emulator |
-| P1-13 | ◐ | Ứng dụng thanh menu: danh sách thiết bị, Mở trong Finder, Gắn/Tháo, hướng dẫn bật Gỡ lỗi USB, mở cùng hệ thống | P1-11 | FR-01, FR-19 đạt |
-| P1-14 | ◐ | Chạy bảng FR của giai đoạn trên Pixel và Samsung thật, sửa lỗi | P1-12, P1-13 | FR-01, FR-03 đến FR-10, FR-19 đạt trên cả hai máy |
+| P1-01 | ◐ | Xcode project, two targets, app group, entitlements (spec section 8), empty packages, CI build + test | | CI green on an empty commit |
+| P1-02 | ✅ | `DroidCore`: `DeviceTransport`, `RemoteEntry`, error enum, NFC normalization, forbidden-character checks, `FakeTransport` | P1-01 | Unit tests for normalization and forbidden characters |
+| P1-03 | ◐ | `UsbKit`: plug/unplug watching, opening interfaces, bulk pipes, async I/O, finding the holding process | P1-01 | The CLI prints devices and interfaces as they are plugged and unplugged |
+| P1-04 | ✅ | `AdbKit` packets: encode, decode, checksum, stream reader | P1-02 | Unit tests with sample packets taken from real `adb` (Wireshark or adb's log) |
+| P1-05 | ◐ | `AdbKit` authentication: RSA-2048 generation, Keychain storage, token signing, Android public-key format | P1-04 | The phone shows the allow dialog; it does not ask again next time |
+| P1-06 | ◐ | `AdbKit` sync: `LIS2`/`LIST`, `STA2`/`STAT`, `RCV2`/`RECV`, `SND2`/`SEND` with mtime | P1-05 | Push and pull a 6 GB file, SHA-256 matches |
+| P1-07 | ✅ | `AdbKit` shell: `shell,v2` with exit codes, safe path quoting, `mkdir`, `rm`, `mv`, `df`, listing `/storage` | P1-05 | Unit tests with the malicious-names set in `Tests/fixtures`; no name runs as a command |
+| P1-08 | ✅ | `AdbKit` through the adb server: detect port 5037, `host:transport:<serial>`, then the same sync and shell | P1-06 | With Android Studio already open, DroidDrive still mounts the phone |
+| P1-09 | ◐ | `AdbTransport`: `DeviceTransport` on top of `AdbKit`, batched listing, 4 parallel streams | P1-06, P1-07 | Integration tests with the Android Emulator over TCP run on CI |
+| P1-10 | ✅ | `ItemStore`: SQLite schema, stable UUIDs, renames keep identifiers, versions, conflicts | P1-02 | Unit tests for rename, move, conflict |
+| P1-11 | ✅ | `DeviceService`: device manager, sessions, XPC server, file descriptor passing | P1-09 | A fake extension lists a folder over XPC |
+| P1-12 | ◐ | File Provider extension: one domain per storage, paged enumeration, fetch, create, modify, delete, disconnects | P1-10, P1-11 | FR-03 to FR-10 pass with the emulator |
+| P1-13 | ◐ | Menu-bar app: device list, Open in Finder, Mount/Unmount, USB debugging guidance, open at login | P1-11 | FR-01, FR-19 pass |
+| P1-14 | ◐ | Run the phase's FR table on a real Pixel and Samsung, fix bugs | P1-12, P1-13 | FR-01, FR-03 to FR-10, FR-19 pass on both |
 
-### Giai đoạn 2: MTP
+### Phase 2: MTP
 
-Mục tiêu: điện thoại không bật Gỡ lỗi USB vẫn dùng được, thư mục 10.000 tệp hiện đủ.
+Goal: a phone without USB debugging still works, and a 10,000-file folder lists completely.
 
-| Mã | Xong | Việc | Phụ thuộc | Xong khi |
+| Id | Done | Task | Depends on | Done when |
 |---|:-:|---|---|---|
-| P2-01 | ◐ | `MtpKit` gói tin: tiêu đề 12 byte, dữ liệu, phản hồi, sự kiện; kiểu dữ liệu PTP (chuỗi UTF-16, mảng) | P1-03 | Unit test với gói mẫu bắt từ OpenMTP |
-| P2-02 | ◐ | `MtpKit` phiên: `GetDeviceInfo`, `OpenSession`, đọc danh sách lệnh thiết bị hỗ trợ, khóa một lệnh một lúc | P2-01 | CLI in thông tin máy và bộ nhớ |
-| P2-03 | ◐ | Liệt kê bằng `GetObjectPropList`, đường rơi về `GetObjectHandles` + `GetObjectInfo` | P2-02 | Thư mục 10.000 tệp liệt kê đủ, đo thời gian theo mục 9 của đặc tả |
-| P2-04 | ◐ | Đọc (`GetPartialObject64`, rơi về `GetObject`), ghi (`SendObjectInfo` + `SendObject`, tệp ≥ 4 GB), sửa (lệnh mở rộng Android, rơi về xóa rồi ghi) | P2-02 | Tệp 6 GB sang và về, SHA-256 khớp |
-| P2-05 | ◐ | Tạo thư mục, xóa, đổi tên, di chuyển (có đường rơi về chép rồi xóa) | P2-02 | Mỗi thao tác thấy được trong ứng dụng Files trên điện thoại |
-| P2-06 | ◐ | Sự kiện qua interrupt endpoint → `ChangeHint` → `signalEnumerator` | P2-02, P1-12 | Chụp ảnh mới, ảnh hiện trong Finder không đợi chu kỳ làm mới (FR-11) |
-| P2-07 | ◐ | `MtpTransport` và chọn chế độ MTP/ADB theo thiết bị, nhớ lựa chọn | P2-03 đến P2-05 | FR-02 đạt |
-| P2-08 | ◐ | Thiết bị bị chiếm: đọc tiến trình giữ, trạng thái và gợi ý theo từng ứng dụng, thử lại tự động, theo kết luận của S0-a | P2-02 | FR-16 đạt với `ptpcamerad` và với OpenMTP đang mở |
-| P2-09 |  | Chạy bảng FR trên Pixel, Samsung, và Kindle hoặc GoPro nếu có | P2-07, P2-08 | FR-02, FR-11, FR-16 đạt; FR-04 đến FR-08 đạt cả qua MTP |
+| P2-01 | ◐ | `MtpKit` containers: 12-byte header, data, response, event; PTP data types (UTF-16 strings, arrays) | P1-03 | Unit tests with sample packets captured from OpenMTP |
+| P2-02 | ◐ | `MtpKit` session: `GetDeviceInfo`, `OpenSession`, supported operations, one operation at a time | P2-01 | The CLI prints device and storage info |
+| P2-03 | ◐ | Listing with `GetObjectPropList`, falling back to `GetObjectHandles` + `GetObjectInfo` | P2-02 | A 10,000-file folder lists completely, timed per spec section 9 |
+| P2-04 | ◐ | Read (`GetPartialObject64`, falling back to `GetObject`), write (`SendObjectInfo` + `SendObject`, files ≥ 4 GB), edit (Android extension operations, with a fallback) | P2-02 | A 6 GB file there and back, SHA-256 matches |
+| P2-05 | ◐ | Create folder, delete, rename, move (falling back to copy then delete) | P2-02 | Each operation is visible in the Files app on the phone |
+| P2-06 | ◐ | Events from the interrupt endpoint → `ChangeHint` → `signalEnumerator` | P2-02, P1-12 | A new photo shows in Finder without waiting for the refresh interval (FR-11) |
+| P2-07 | ◐ | `MtpTransport` and MTP/ADB choice per device, remembered | P2-03 to P2-05 | FR-02 passes |
+| P2-08 | ◐ | Busy device: find the holder, status and per-app advice, automatic retry, per the S0-a conclusion | P2-02 | FR-16 passes with `ptpcamerad` and with OpenMTP open |
+| P2-09 |  | Run the FR table on a Pixel, a Samsung, and a Kindle or GoPro if available | P2-07, P2-08 | FR-02, FR-11, FR-16 pass; FR-04 to FR-08 also pass over MTP |
 
-### Giai đoạn 3: Wi-Fi
+### Phase 3: Wi-Fi
 
-| Mã | Xong | Việc | Phụ thuộc | Xong khi |
+| Id | Done | Task | Depends on | Done when |
 |---|:-:|---|---|---|
-| P3-01 | ◐ | ADB qua TCP thường: `tcpip:5555` qua USB, đọc IP, kết nối, nhớ thiết bị | P1-09 | FR-14 đạt trên máy Android 10 |
-| P3-02 | ✅ | `AdbPairing`: module C SPAKE2 từ BoringSSL, đối chiếu với `pairing_auth` của AOSP | | Unit test với vector mẫu sinh từ `adb pair` thật |
-| P3-03 | ✅ | Ghép đôi qua TLS: trao chứng chỉ, lưu chứng chỉ thiết bị | P3-02 | Ghép đôi bằng mã 6 số thành công với Pixel |
-| P3-04 | ✅ | mDNS: duyệt `_adb-tls-pairing._tcp` và `_adb-tls-connect._tcp` bằng `NWBrowser`, quyền mạng cục bộ | P1-01 | Danh sách điện thoại đang chờ ghép đôi hiện trong sheet |
-| P3-05 | ✅ | Kết nối TLS sau ghép đôi: `CNXN` → `STLS` → TLS 1.3 với chứng chỉ của khóa RSA | P3-03 | Gắn ổ qua Wi-Fi, FR-06 đạt qua Wi-Fi |
-| P3-06 | ✅ | Mã QR: sinh tên dịch vụ và mật khẩu, vẽ QR, chờ điện thoại quảng bá rồi ghép đôi | P3-03, P3-04 | FR-12 đạt |
-| P3-07 | ◐ | Sheet Kết nối qua Wi-Fi với bốn tab, nhập tay IP:cổng:mã | P3-05 | FR-13 đạt |
-| P3-08 | ◐ | Tự kết nối lại khi thấy thiết bị đã ghép đôi | P3-05 | FR-15 đạt |
+| P3-01 | ◐ | Plain ADB over TCP: `tcpip:5555` over USB, read the IP, connect, remember the device | P1-09 | FR-14 passes on an Android 10 phone |
+| P3-02 | ✅ | `AdbPairing`: SPAKE2 C module from BoringSSL, checked against AOSP `pairing_auth` | | Unit tests with vectors produced by the real `adb pair` |
+| P3-03 | ✅ | Pairing over TLS: certificate exchange, storing the device certificate | P3-02 | Pairing with a 6-digit code succeeds with a Pixel |
+| P3-04 | ✅ | mDNS: browse `_adb-tls-pairing._tcp` and `_adb-tls-connect._tcp` with `NWBrowser`, local network permission | P1-01 | Phones waiting to pair appear in the sheet |
+| P3-05 | ✅ | TLS connection after pairing: `CNXN` → `STLS` → TLS 1.3 with the RSA key's certificate | P3-03 | A drive mounts over Wi-Fi, FR-06 passes over Wi-Fi |
+| P3-06 | ✅ | QR code: generate service name and password, draw the QR code, wait for the phone's advertisement, then pair | P3-03, P3-04 | FR-12 passes |
+| P3-07 | ◐ | Connect via Wi-Fi sheet with four tabs, manual IP:port:code | P3-05 | FR-13 passes |
+| P3-08 | ◐ | Reconnect automatically when a paired device shows up | P3-05 | FR-15 passes |
 
-### Giai đoạn 4: hoàn thiện và phát hành
+### Phase 4: finishing and release
 
-| Mã | Xong | Việc | Xong khi |
+| Id | Done | Task | Done when |
 |---|:-:|---|---|
-| P4-01 | ◐ | Cửa sổ Thiết bị đầy đủ (mục 6 của đặc tả), hướng dẫn có hình cho "Truyền tệp" và Gỡ lỗi USB | Người chưa từng dùng gắn được điện thoại không cần hỏi |
-| P4-02 | ✅ | Nhật ký truyền tệp: lưu 7 ngày, lọc, tốc độ | FR-17 đạt |
-| P4-03 | ✅ | Trạng thái tệp trong Finder, decoration nếu cần | FR-18 đạt |
-| P4-04 | ✅ | Cài đặt (mục 7 của đặc tả), chu kỳ làm mới theo thiết bị, Xóa thiết bị | FR-20 đạt |
-| P4-05 | ✅ | Giao diện chỉ tiếng Anh (đổi ngày 14/11/2026, trước là tiếng Việt và tiếng Anh) | Không còn chuỗi tiếng Việt nào trong UI, tên ổ, tên bản xung đột, thông báo lỗi |
-| P4-06 | ◐ | Đo hiệu năng theo mục 9 của đặc tả, sửa chỗ không đạt | Bảng số đo ghi vào `docs/benchmarks.md` |
-| P4-07 | ◐ | Ký Developer ID, notarize, Sparkle, trang tải | Bản notarized cài trên máy sạch, tự cập nhật lên bản kế tiếp |
-| P4-08 | ◐ | Chạy toàn bộ FR-01 đến FR-20 trên ma trận thiết bị và macOS 13, 15, 26 | Không còn lỗi mất dữ liệu; lỗi còn lại được ghi trong ghi chú phát hành |
+| P4-01 | ◐ | Full Devices window (spec section 6), illustrated guidance for "File transfer" and USB debugging | Someone who has never used it mounts a phone without asking |
+| P4-02 | ✅ | Transfer log: kept 7 days, filters, speeds | FR-17 passes |
+| P4-03 | ✅ | File status in Finder, decorations where needed | FR-18 passes |
+| P4-04 | ✅ | Settings (spec section 7), per-device refresh interval, Remove Device | FR-20 passes |
+| P4-05 | ✅ | English-only UI (changed 14 November 2026; previously Vietnamese and English) | No Vietnamese left in the UI, drive names, conflict-copy names or error messages |
+| P4-06 | ◐ | Measure performance per spec section 9, fix what misses | Numbers recorded in `docs/spikes.md` |
+| P4-07 | ◐ | Developer ID signing, notarization, update feed, download page | A notarized build installs on a clean Mac |
+| P4-08 | ◐ | Run all of FR-01 to FR-20 on the device matrix and macOS 13, 15, 26 | No data-loss bugs left; the remaining ones are in the release notes |
 
-### Giai đoạn 5: tùy chọn
+### Phase 5: optional
 
-Chỉ lên kế hoạch chi tiết khi giai đoạn 4 xong và người dùng chọn làm: FSKit (nếu S0-d đạt), App Intents cho Shortcuts, Mac App Store, gói trả phí.
+Planned in detail only when phase 4 is done and the user chooses: App Intents for Shortcuts, Mac App Store, paid tier. FSKit was evaluated in spike S0-d and not adopted (see section 5).
 
-## 4. Cách làm trong từng việc
+## 4. How each task is done
 
-- Viết test trước cho các lớp gói tin, ItemStore, chuẩn hóa tên, thoát đường dẫn; độ phủ tối thiểu 80% cho các package trong `Packages/`.
-- Mỗi việc là một nhánh và một pull request, tên nhánh theo mã việc (`p1-06-adb-sync`).
-- Mọi thao tác ghi hoặc xóa trên điện thoại phải có test xung đột trước khi gộp vào nhánh chính.
-- Khi một kết luận trong lúc làm khác với đặc tả, sửa đặc tả trong cùng pull request.
+- Tests first for packets, ItemStore, name normalization and path quoting; at least 80% coverage for the packages in `Packages/`.
+- One branch and one pull request per task, named after the task id (`p1-06-adb-sync`).
+- Every write or delete on the phone needs a conflict test before it is merged.
+- When a finding differs from the spec, update the spec in the same pull request.
 
-## 5. Theo dõi tiến độ
+## 5. Progress
 
-Chưa có nơi theo dõi riêng; trạng thái từng việc ghi ở đây và ở pull request. Nếu cần, có thể tạo một project trong IndieWork với mỗi giai đoạn là một milestone và mỗi mã việc ở trên là một task.
+Status per task is kept here and in pull requests.
 
-Trạng thái tối 14/11/2026. "Emulator" là Android Emulator (Android 15); "Pixel" là Pixel 4 XL thật (Android 13) nối qua Wi-Fi bằng adb server; "điện thoại giả" là thiết bị MTP giả trong bộ nhớ của bộ test.
+Status on 14–15 November 2026. "Emulator" is the Android Emulator (Android 15); "Pixel" is a real Pixel 4 XL (Android 13) over Wi-Fi; "fake phone" is the in-memory MTP device of the test suite.
 
-| Mã | Đã có | Còn lại |
+| Id | Done so far | Still missing |
 |---|---|---|
-| S0-a | Công cụ `droiddrive-usb` (`list`, `mtp-info`, `mtp-ls`, `mtp-pull`, `adb-info`) | Chạy với Pixel và Samsung cắm cáp, trước và sau `killall ptpcamerad` |
-| S0-b | Đạt qua TCP và qua adb server; ADB qua USB chạy với ống USB giả | Chạy qua USB thật |
-| S0-c | Đạt | |
-| S0-d | Có: FSKit gắn được từ URL, liệt kê 10.000 mục trong 0,11 giây so với 401 giây qua File Provider (xem `spikes.md`) | Người dùng chốt ngày 15/11/2026: **không làm chế độ FSKit**. DroidDrive dùng cho cá nhân, File Provider đủ dùng; trên macOS 26 module FSKit chỉ bật được bằng tay |
-| P1-01 | Project, hai target, app group, entitlement; `.github/workflows/ci.yml` (test package, build app không ký) | Chạy CI trên GitHub |
-| P1-02 | Xong | |
-| P1-03 | `UsbKit`: theo dõi cắm rút, nhận diện giao diện, đọc tiến trình đang giữ, `UsbPacketLink`; app có nguồn ADB-USB tự dùng khi không có adb server | Mở giao diện USB thật lần đầu |
-| P1-04 | Xong | |
-| P1-05 | Khóa trong Keychain (`AdbKeyStore`), app và CLI dùng chung | Thấy hộp thoại "Cho phép" trên máy thật khi DroidDrive tự nối USB |
-| P1-06 | 1 GB trên emulator, 300 MB trên Pixel qua Wi-Fi, khớp SHA-256 | Tệp 6 GB |
-| P1-07 | Xong | |
-| P1-08 | Xong; ổ đặt tên theo `ro.serialno` | |
-| P1-09 | Test tích hợp đạt trên emulator và Pixel (`DROIDDRIVE_TEST_ROOT`) | Chạy trên CI |
-| P1-10 | Xong | |
-| P1-11 | App giữ kết nối, extension gọi qua XPC (service của File Provider + Darwin notification, xem đặc tả 5.1); chạy cả khi app tắt rồi mở lại | |
-| P1-12 | FR-03 → 06, 08 → 11 đạt trên emulator; trên Pixel: tạo, đổi tên, di chuyển, sửa, xóa, tên tiếng Việt, xung đột | FR-07 (6 GB) |
-| P1-13 | Menu, cửa sổ Devices, gắn thêm bộ nhớ xuất hiện sau (thẻ SD), FR-19 | FR-01 qua USB thật |
-| P1-14 | Pixel qua Wi-Fi (adb server, rồi kết nối riêng của DroidDrive): 7/8 test tích hợp đạt, tốc độ ≥ 80% `adb` | Pixel qua USB, Samsung; trang đầu thư mục 10.000 tệp đo được 2,27 giây (mục tiêu 2) khi đang chia băng thông, cần đo lại riêng |
-| P2-01 → P2-08 | `MtpKit`, `MtpTransport` qua cùng bộ kiểm tra như ADB; app có nguồn MTP; nhận diện `ptpcamerad`, Android File Transfer, OpenMTP, MacDroid… kèm lời khuyên | Mọi thứ trên máy thật; gói mẫu bắt từ OpenMTP; chọn MTP/ADB cho từng máy ngoài cài đặt chung |
-| P2-09 | | Cần máy thật |
-| P3-01 | `TcpipSwitch`, tab "Android 10 and earlier" | Chạy với máy Android ≤ 10 |
-| P3-02 | Xong, kiểm với mô hình tham chiếu và với `adb pair` thật | |
-| P3-03 | Ghép đôi với Pixel thật bằng QR (người dùng làm, 14/11/2026); mã 6 số với emulator; `adb pair` thật ghép được với `PairingServer` của DroidDrive | Mã 6 số với điện thoại thật |
-| P3-04 | Xong; thấy được Pixel thật qua mDNS | |
-| P3-05 | Pixel gắn qua kết nối TLS của chính DroidDrive (không qua adb server): đọc thư mục, tạo, đổi tên, sửa, tải lên 20 MB (1,8 MB/s), xóa qua Finder | Điện thoại từ chối khóa lạ |
-| P3-06, P3-07 | Cửa sổ "Connect via Wi-Fi…" bốn tab, đã nối vào menu; Pixel thật quét QR thành công (FR-12) | Nhập mã 6 số, nhập tay IP:cổng:mã trên máy thật (FR-13) |
-| P3-08 | `WifiReconnector` trong nguồn Wi-Fi của app | FR-15 trên máy thật |
-| P4-01 | Cửa sổ Devices, hướng dẫn bằng chữ và SF Symbols | Người dùng mới thử; ảnh hướng dẫn |
-| P4-02 | Xong (FR-17) | |
-| P4-03 | Huy hiệu cho bản "(Mac copy)" (FR-18) | |
-| P4-04 | Cài đặt, chu kỳ làm mới theo máy, Remove Device xóa ổ, cache và ghép đôi Wi-Fi (FR-20) | Nút tạo khóa ADB mới |
-| P4-05 | Giao diện chỉ tiếng Anh | |
-| P4-06 | Số đo ở `spikes.md` | Liệt kê thư mục lớn qua Finder không đạt mục 9: fileproviderd mất khoảng 30 ms cho mỗi mục |
-| P4-07 | `scripts/release.sh` (archive, ký Developer ID, notarize, staple, DMG) | Chạy với tài khoản trả phí; Sparkle và nơi đặt bản cập nhật chờ quyết định |
-| P4-08 | Bảng FR trên emulator | Ma trận máy thật, macOS 13 và 15 |
+| S0-a | The `droiddrive-usb` tool (`list`, `mtp-info`, `mtp-ls`, `mtp-pull`, `adb-info`) | Run with a Pixel and a Samsung on a cable, before and after `killall ptpcamerad` |
+| S0-b | Passes over TCP and through the adb server; ADB over USB runs against a fake USB pipe | Run over real USB |
+| S0-c | Passes | |
+| S0-d | Yes: FSKit mounts from a URL and lists 10,000 entries in 0.11 seconds against 401 seconds through File Provider (see `spikes.md`) | Decided 15 November 2026: **no FSKit mode**. DroidDrive is for personal use, File Provider is enough; on macOS 26 an FSKit module can only be enabled by hand |
+| P1-01 | Project, two targets, app group, entitlements; `.github/workflows/ci.yml` (package tests, unsigned app build) | Run CI on GitHub |
+| P1-02 | Done | |
+| P1-03 | `UsbKit`: plug/unplug watching, interface detection, holder detection, `UsbPacketLink`; the app has an ADB-over-USB source used when no adb server runs | Open a real USB interface for the first time |
+| P1-04 | Done | |
+| P1-05 | Key in the Keychain (`AdbKeyStore`), shared by the app and the CLI | See the "Allow" dialog on a real phone when DroidDrive connects over USB itself |
+| P1-06 | 1 GB on the emulator, 300 MB on the Pixel over Wi-Fi, SHA-256 matches | 6 GB file |
+| P1-07 | Done | |
+| P1-08 | Done; drives are named after `ro.serialno` | |
+| P1-09 | Integration tests pass on the emulator and the Pixel (`DROIDDRIVE_TEST_ROOT`) | Run on CI |
+| P1-10 | Done | |
+| P1-11 | The app holds the connections, the extension calls it over XPC (File Provider service + Darwin notification, see spec 5.1); works when the app quits and starts again | |
+| P1-12 | FR-03 → 06, 08 → 11 pass on the emulator; on the Pixel: create, rename, move, edit, delete, Vietnamese names, conflicts | FR-07 (6 GB) |
+| P1-13 | Menu, Devices window, mounting storages that appear later (SD card), FR-19 | FR-01 over real USB |
+| P1-14 | Pixel over Wi-Fi (adb server, then DroidDrive's own connection): 7/8 integration tests pass, speed ≥ 80% of `adb` | Pixel over USB, a Samsung; first page of a 10,000-file folder measured at 2.27 seconds (target 2) while sharing bandwidth, to be measured again alone |
+| P2-01 → P2-08 | `MtpKit` and `MtpTransport` pass the same checks as ADB; the app has an MTP source; recognizes `ptpcamerad`, Android File Transfer, OpenMTP, MacDroid… with advice | Everything on a real phone; sample packets captured from OpenMTP; per-device MTP/ADB choice beyond the global setting |
+| P2-09 | | Needs a real phone |
+| P3-01 | `TcpipSwitch`, the "Android 10 and earlier" tab | Run with an Android ≤ 10 phone |
+| P3-02 | Done, checked against a reference model and the real `adb pair` | |
+| P3-03 | Paired with the real Pixel by QR code (14 November 2026); 6-digit code with the emulator; the real `adb pair` pairs with DroidDrive's `PairingServer` | 6-digit code with a real phone |
+| P3-04 | Done; sees the real Pixel over mDNS | |
+| P3-05 | The Pixel mounts over DroidDrive's own TLS connection (no adb server): listing, create, rename, edit, 20 MB upload (1.8 MB/s), delete through Finder | A phone rejecting an unknown key |
+| P3-06, P3-07 | "Connect via Wi-Fi…" window with four tabs, in the menu; the real Pixel paired by QR code (FR-12) | 6-digit code and manual IP:port:code on a real phone (FR-13) |
+| P3-08 | `WifiReconnector` inside the app's Wi-Fi source | FR-15 on a real phone |
+| P4-01 | Devices window, guidance in text and SF Symbols | A new user trying it; illustrated guidance |
+| P4-02 | Done (FR-17) | |
+| P4-03 | Badge on "(Mac copy)" files (FR-18) | |
+| P4-04 | Settings, per-device refresh, Remove Device removes drives, cache and Wi-Fi pairing (FR-20) | "Generate new ADB key" button |
+| P4-05 | English-only UI | |
+| P4-06 | Numbers in `spikes.md` | Listing large folders through Finder misses section 9: fileproviderd spends about 30 ms per entry |
+| P4-07 | `scripts/release.sh` (archive, Developer ID signing, notarization, stapling, DMG) | Low priority for personal use; update feed and hosting undecided |
+| P4-08 | FR table on the emulator | Real device matrix, macOS 13 and 15 |
