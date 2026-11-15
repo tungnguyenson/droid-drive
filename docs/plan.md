@@ -160,7 +160,7 @@ Trạng thái tối 14/11/2026. "Emulator" là Android Emulator (Android 15); "P
 | S0-a | Công cụ `droiddrive-usb` (`list`, `mtp-info`, `mtp-ls`, `mtp-pull`, `adb-info`) | Chạy với Pixel và Samsung cắm cáp, trước và sau `killall ptpcamerad` |
 | S0-b | Đạt qua TCP và qua adb server; ADB qua USB chạy với ống USB giả | Chạy qua USB thật |
 | S0-c | Đạt | |
-| S0-d | Có: FSKit gắn được từ URL, liệt kê 10.000 mục trong 0,11 giây so với 401 giây qua File Provider (xem `spikes.md`) | Công tắc của Cài đặt hệ thống không bật được module bên thứ ba; quyết định có chuyển sang FSKit hay không |
+| S0-d | Có: FSKit gắn được từ URL, liệt kê 10.000 mục trong 0,11 giây so với 401 giây qua File Provider (xem `spikes.md`) | Người dùng chốt ngày 15/11/2026: **không làm chế độ FSKit**. DroidDrive dùng cho cá nhân, File Provider đủ dùng; trên macOS 26 module FSKit chỉ bật được bằng tay |
 | P1-01 | Project, hai target, app group, entitlement; `.github/workflows/ci.yml` (test package, build app không ký) | Chạy CI trên GitHub |
 | P1-02 | Xong | |
 | P1-03 | `UsbKit`: theo dõi cắm rút, nhận diện giao diện, đọc tiến trình đang giữ, `UsbPacketLink`; app có nguồn ADB-USB tự dùng khi không có adb server | Mở giao diện USB thật lần đầu |
